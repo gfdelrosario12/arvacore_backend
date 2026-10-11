@@ -1,8 +1,8 @@
-# AquaFlow Backend Services Architecture & Operations Guide
+# ArvaCore: Backend Services Architecture & Operations Guide (ArvaNet Backend)
 
 [![Java Version](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white)](https://openjdk.org) [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.x-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot) [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%2B-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org) [![Flyway](https://img.shields.io/badge/Flyway-Migrations-CC0200?logo=flyway&logoColor=white)](https://flywaydb.org) [![Docker](https://img.shields.io/badge/Docker-Enabled-2496ED?logo=docker&logoColor=white)](https://www.docker.com) [![OpenSpec](https://img.shields.io/badge/OpenSpec-Enabled-blueviolet)](https://github.com/openspec/openspec)
 
-Production-ready Spring Boot backend for the AquaFlow Smart Alternate Wetting and Drying (AWD) Irrigation System.
+Production-ready Spring Boot backend for the **ArvaCore** Smart Alternate Wetting and Drying (AWD) Irrigation System (*PUP BS Computer Engineering Thesis; 2026*).
 
 > [!IMPORTANT]
 > **CRITICAL DOMAIN INVARIANT: ZERO CLOUD AUTONOMOUS DECISIONS**
