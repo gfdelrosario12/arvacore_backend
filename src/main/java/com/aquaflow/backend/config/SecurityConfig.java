@@ -2,6 +2,7 @@ package com.aquaflow.backend.config;
 
 import com.aquaflow.backend.infrastructure.security.CustomAccessDeniedHandler;
 import com.aquaflow.backend.infrastructure.security.CustomAuthenticationEntryPoint;
+import com.aquaflow.backend.infrastructure.security.GatewayAuthenticationFilter;
 import com.aquaflow.backend.infrastructure.security.JwtAuthenticationFilter;
 import com.aquaflow.backend.infrastructure.security.RateLimitingFilter;
 import com.aquaflow.backend.infrastructure.security.SecurityHeadersFilter;
@@ -41,6 +42,7 @@ public class SecurityConfig {
     private final CustomAuthenticationEntryPoint authenticationEntryPoint;
     private final CustomAccessDeniedHandler accessDeniedHandler;
     private final UserDetailsService userDetailsService;
+    private final GatewayAuthenticationFilter gatewayAuthenticationFilter;
 
     @Value("${aquaflow.cors.allowed-origins:*}")
     private String allowedOrigins;
@@ -51,7 +53,8 @@ public class SecurityConfig {
                           RateLimitingFilter rateLimitingFilter,
                           CustomAuthenticationEntryPoint authenticationEntryPoint,
                           CustomAccessDeniedHandler accessDeniedHandler,
-                          UserDetailsService userDetailsService) {
+                          UserDetailsService userDetailsService,
+                          GatewayAuthenticationFilter gatewayAuthenticationFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.webhookAuthenticationFilter = webhookAuthenticationFilter;
         this.securityHeadersFilter = securityHeadersFilter;
@@ -59,6 +62,7 @@ public class SecurityConfig {
         this.authenticationEntryPoint = authenticationEntryPoint;
         this.accessDeniedHandler = accessDeniedHandler;
         this.userDetailsService = userDetailsService;
+        this.gatewayAuthenticationFilter = gatewayAuthenticationFilter;
     }
 
     @Bean
@@ -86,6 +90,7 @@ public class SecurityConfig {
                 .addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(webhookAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(gatewayAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

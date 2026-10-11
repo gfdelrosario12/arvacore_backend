@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 @RequiredArgsConstructor
 @Transactional
+@lombok.extern.slf4j.Slf4j
 public class TelemetryIngestionServiceImpl implements TelemetryIngestionService {
 
     private final EdgeNodeRepository edgeNodeRepository;
@@ -129,10 +130,17 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         MonitoringPoint primaryPoint = points.isEmpty() ? null : points.get(0);
 
         int count = 0;
+        int rejected = 0;
         if (decoded.getMeasurements() != null) {
             for (Map.Entry<SensorType, Double> entry : decoded.getMeasurements().entrySet()) {
                 SensorType type = entry.getKey();
                 Double val = entry.getValue();
+
+                if (!TelemetryValidator.isPlausible(type, val)) {
+                    rejected++;
+                    log.warn("Rejected out-of-range {} reading from node {}", type, node.getNodeId());
+                    continue;
+                }
 
                 TelemetryReading reading = TelemetryReading.builder()
                         .edgeNode(node)
@@ -163,7 +171,9 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         return TelemetryUplinkResponse.builder()
                 .success(true)
                 .nodeId(node.getNodeId())
-                .message("Telemetry uplink ingested successfully")
+                .message(rejected == 0
+                        ? "Telemetry uplink ingested successfully"
+                        : "Telemetry ingested; " + rejected + " out-of-range measurement(s) rejected")
                 .duplicate(false)
                 .readingsIngested(count)
                 .timestamp(validatedTimestamp)
@@ -195,6 +205,8 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
             return "CELSIUS";
         } else if (type == SensorType.WATER_FLOW) {
             return "LITERS_PER_MINUTE";
+        } else if (type == SensorType.WATER_LEVEL_DISTANCE) {
+            return "CENTIMETERS";
         }
         return "UNIT";
     }

@@ -27,12 +27,13 @@ public class JsonPayloadDecoder implements PayloadDecoder {
         payload.setFCnt(request.getFCnt());
         payload.setFPort(request.getFPort());
         payload.setTimestamp(request.getTimestamp() != null ? request.getTimestamp() : LocalDateTime.now());
-        payload.setBatteryLevel(request.getBatteryLevel() != null ? request.getBatteryLevel() : 100.0);
-        payload.setSolarVoltage(request.getSolarVoltage() != null ? request.getSolarVoltage() : 5.0);
+        // Never fabricate health/signal values: absent fields stay null.
+        payload.setBatteryLevel(request.getBatteryLevel());
+        payload.setSolarVoltage(request.getSolarVoltage());
 
         SignalMetadataDto signal = SignalMetadataDto.builder()
-                .rssiDbm(request.getRssiDbm() != null ? request.getRssiDbm() : -60)
-                .snrDb(request.getSnrDb() != null ? request.getSnrDb() : 10.0)
+                .rssiDbm(request.getRssiDbm())
+                .snrDb(request.getSnrDb())
                 .gatewayId(request.getGatewayId())
                 .frequency(request.getFrequency())
                 .build();
@@ -49,9 +50,7 @@ public class JsonPayloadDecoder implements PayloadDecoder {
             });
         }
 
-        if (measurements.isEmpty()) {
-            measurements.put(SensorType.SOIL_MOISTURE, 35.0);
-        }
+        // An empty measurement map is a heartbeat-only uplink; do not invent readings.
 
         payload.setMeasurements(measurements);
         return payload;

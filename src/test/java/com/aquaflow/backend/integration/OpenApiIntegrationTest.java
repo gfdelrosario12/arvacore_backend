@@ -35,7 +35,7 @@ public class OpenApiIntegrationTest {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("openapi")))
-                .andExpect(content().string(containsString("AquaFlow Autonomous AWD Irrigation API")))
+                .andExpect(content().string(containsString("ArvaCore Backend Services API")))
                 .andExpect(content().string(containsString("bearerAuth")))
                 .andExpect(content().string(containsString("/api/v1/fields")))
                 .andExpect(content().string(containsString("/api/v1/nodes")));

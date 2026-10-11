@@ -21,13 +21,13 @@ public class OpenApiConfig {
         final String securitySchemeName = "bearerAuth";
         return new OpenAPI()
                 .info(new Info()
-                        .title("AquaFlow Autonomous AWD Irrigation API")
+                        .title("ArvaCore Backend Services API")
                         .version("1.0.0")
-                        .description("REST API specifications for AquaFlow autonomous edge-based Alternate Wetting and Drying (AWD) rice paddy irrigation system. Supports field topology management, edge node commissioning, telemetry ingestion, AWD configuration, irrigation scheduling, manual valve controls, command state machines, and audit logging.")
-                        .contact(new Contact().name("AquaFlow Engineering Team").email("support@aquaflow.io"))
+                        .description("Backend services for ArvaCore, an IoT-based Alternate Wetting and Drying (AWD) irrigation monitoring and water management system for rice cultivation. Consumed by ArvaNet (web/mobile) and the ArvaNode field gateway. Supports field topology management, edge node commissioning, telemetry ingestion, AWD configuration, irrigation scheduling, manual valve controls, command state machines, and audit logging.")
+                        .contact(new Contact().name("ArvaCore Research Team").email("support@aquaflow.io"))
                         .license(new License().name("Apache 2.0").url("https://www.apache.org/licenses/LICENSE-2.0")))
                 .servers(List.of(
-                        new Server().url("/").description("Current AquaFlow Server Base URL")
+                        new Server().url("/").description("Current ArvaCore backend base URL")
                 ))
                 .addSecurityItem(new SecurityRequirement().addList(securitySchemeName))
                 .components(new Components()

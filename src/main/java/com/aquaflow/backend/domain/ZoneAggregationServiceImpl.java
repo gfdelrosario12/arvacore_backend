@@ -125,7 +125,10 @@ public class ZoneAggregationServiceImpl implements ZoneAggregationService {
                         } else if (r.getSensorType() == SensorType.HUMIDITY) {
                             humidityValues.add(r.getValueNum());
                         } else if (r.getSensorType() == SensorType.WATER_FLOW) {
-                            waterLevelValues.add(r.getValueNum());
+                            // Flow rate (L/min) is NOT water level. Water depth requires a calibrated
+                            // per-node reference for WATER_LEVEL_DISTANCE (not yet defined), so the
+                            // aggregate waterLevel intentionally stays null.
+                            continue;
                         } else if (r.getSensorType() == SensorType.BATTERY_VOLTAGE) {
                             batteryValues.add(r.getValueNum());
                         }
