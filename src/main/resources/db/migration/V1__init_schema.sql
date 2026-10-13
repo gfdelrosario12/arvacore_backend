@@ -1,5 +1,5 @@
 CREATE TABLE zones (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     area DOUBLE PRECISION NOT NULL,
     crop_type VARCHAR(255) NOT NULL,
@@ -9,7 +9,7 @@ CREATE TABLE zones (
 );
 
 CREATE TABLE crops (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL UNIQUE,
     water_per_stage DOUBLE PRECISION,
     growing_season_days INTEGER,
@@ -20,7 +20,7 @@ CREATE TABLE crops (
 );
 
 CREATE TABLE irrigation_schedules (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     zone_id BIGINT NOT NULL REFERENCES zones(id),
     start_time TIMESTAMP,
     duration INTEGER,
@@ -32,7 +32,7 @@ CREATE TABLE irrigation_schedules (
 );
 
 CREATE TABLE sensor_readings (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     device_id VARCHAR(255) NOT NULL,
     sensor_type VARCHAR(255) NOT NULL,
     "value" DOUBLE PRECISION NOT NULL,
@@ -55,7 +55,7 @@ CREATE TABLE devices (
 );
 
 CREATE TABLE alerts (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     device_id VARCHAR(255),
     zone_id BIGINT,
     alert_type VARCHAR(255),
@@ -67,7 +67,7 @@ CREATE TABLE alerts (
 );
 
 CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     username VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
@@ -77,7 +77,7 @@ CREATE TABLE users (
 );
 
 CREATE TABLE schedules (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     name VARCHAR(255),
     start_time TIMESTAMP,
     end_time TIMESTAMP,
