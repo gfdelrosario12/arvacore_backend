@@ -10,20 +10,24 @@ import org.springframework.integration.mqtt.inbound.MqttPahoMessageDrivenChannel
 import org.springframework.integration.mqtt.outbound.MqttPahoMessageHandler;
 import org.springframework.messaging.MessageChannel;
 
+import org.springframework.beans.factory.annotation.Value;
+
 import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
 public class MqttConfig {
 
-    private static final String MQTT_BROKER_URL = "tcp://localhost:1883";
+    @Value("${MQTT_BROKER_URL:tcp://localhost:1883}")
+    private String mqttBrokerUrl;
+
     private static final String CLIENT_ID = "aquaflow-backend";
 
     @Bean
     public MqttPahoClientFactory mqttClientFactory() {
         DefaultMqttPahoClientFactory factory = new DefaultMqttPahoClientFactory();
         MqttConnectOptions options = new MqttConnectOptions();
-        options.setServerURIs(new String[] { MQTT_BROKER_URL });
+        options.setServerURIs(new String[] { mqttBrokerUrl });
         options.setUserName("");
         options.setPassword("".toCharArray());
         factory.setConnectionOptions(options);

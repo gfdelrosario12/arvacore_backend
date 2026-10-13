@@ -1,0 +1,73 @@
+# =============================================================================
+# AquaFlow Backend — .dockerignore
+# Excludes build artifacts, IDE configs, secrets, and dev files from context
+# =============================================================================
+
+# Build artifacts
+target/
+!target/*.jar
+
+# Maven wrapper JAR (downloaded at build time)
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE and editor configs
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+
+# Agent / AI tool configs
+.agent/
+.claude/
+.cline/
+.clinerules/
+.codex/
+.continue/
+.cursor/
+.gemini/
+.junie/
+.kilo/
+.kilocode/
+.kimi/
+.kiro/
+.opencode/
+.qwen/
+.roo/
+.vibe/
+.windsurf/
+
+# Git
+.git/
+.gitattributes
+
+# GitHub CI/CD (not needed in image)
+.github/
+
+# OpenSpec planning artifacts
+openspec/
+
+# Environment and secrets (NEVER bake into image)
+.env
+.env.*
+!.env.example
+secrets/
+
+# Documentation
+README.md
+HELP.md
+*.md.bak
+
+# Docker files (prevent recursive context)
+Dockerfile
+docker-compose*.yml
+docker-compose*.yaml
+
+# OS junk
+.DS_Store
+Thumbs.db
+

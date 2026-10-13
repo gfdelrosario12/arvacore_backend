@@ -1,44 +1,43 @@
 CREATE TABLE zones (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    area DOUBLE NOT NULL,
+    area DOUBLE PRECISION NOT NULL,
     crop_type VARCHAR(255) NOT NULL,
-    water_allocation_limit DOUBLE,
+    water_allocation_limit DOUBLE PRECISION,
     created_at TIMESTAMP,
     updated_at TIMESTAMP
 );
 
 CREATE TABLE crops (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL UNIQUE,
-    water_per_stage DOUBLE,
+    water_per_stage DOUBLE PRECISION,
     growing_season_days INTEGER,
-    optimal_temperature_min DOUBLE,
-    optimal_temperature_max DOUBLE,
+    optimal_temperature_min DOUBLE PRECISION,
+    optimal_temperature_max DOUBLE PRECISION,
     created_at TIMESTAMP,
     updated_at TIMESTAMP
 );
 
 CREATE TABLE irrigation_schedules (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    zone_id BIGINT NOT NULL,
+    id SERIAL PRIMARY KEY,
+    zone_id BIGINT NOT NULL REFERENCES zones(id),
     start_time TIMESTAMP,
     duration INTEGER,
-    water_volume DOUBLE,
+    water_volume DOUBLE PRECISION,
     recurrence_rule VARCHAR(255),
     status VARCHAR(50),
     created_at TIMESTAMP,
-    updated_at TIMESTAMP,
-    FOREIGN KEY (zone_id) REFERENCES zones(id)
+    updated_at TIMESTAMP
 );
 
 CREATE TABLE sensor_readings (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     device_id VARCHAR(255) NOT NULL,
     sensor_type VARCHAR(255) NOT NULL,
-    value DOUBLE NOT NULL,
+    "value" DOUBLE PRECISION NOT NULL,
     unit VARCHAR(50),
-    timestamp TIMESTAMP,
+    "timestamp" TIMESTAMP,
     zone_id BIGINT,
     created_at TIMESTAMP
 );
@@ -56,7 +55,7 @@ CREATE TABLE devices (
 );
 
 CREATE TABLE alerts (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     device_id VARCHAR(255),
     zone_id BIGINT,
     alert_type VARCHAR(255),
@@ -68,7 +67,7 @@ CREATE TABLE alerts (
 );
 
 CREATE TABLE users (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     username VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
@@ -78,7 +77,7 @@ CREATE TABLE users (
 );
 
 CREATE TABLE schedules (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     name VARCHAR(255),
     start_time TIMESTAMP,
     end_time TIMESTAMP,

@@ -1,0 +1,27 @@
+# =============================================================================
+# Caddyfile — Automatic HTTPS reverse proxy for AquaFlow Backend
+# Caddy auto-obtains and renews Let's Encrypt TLS certificates.
+#
+# Prerequisites:
+#   - DNS A record: api-aquaflow.gladwindr.me → 167.104.100.133
+#   - Ports 80 and 443 open in firewall (for ACME challenge & HTTPS)
+# =============================================================================
+
+api-aquaflow.gladwindr.me {
+    reverse_proxy backend:8080
+
+    # Security headers
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    # Access logs
+    log {
+        output stdout
+        format console
+    }
+}
+
