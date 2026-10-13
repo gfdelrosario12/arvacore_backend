@@ -1,20 +1,7 @@
 # =============================================================================
 # AquaFlow Backend — Production Docker Compose
 # Deploy on HostHatch VPS (agama-core) alongside GLPI, Vaultwarden, Hani Bot
-# =============================================================================
-#
-# Port allocation on agama-core:
-#   8080 — GLPI (already taken)
-#   8081 — Vaultwarden (already taken, 127.0.0.1 only)
-#   8082 — AquaFlow Backend (new)
-#   1883 — Mosquitto MQTT
-#   5432 — PostgreSQL
-#   9001 — Mosquitto WebSocket
-#
-# Usage:
-#   1. Copy .env.example to .env.production and fill in secrets
-#   2. Create secret files in ./secrets/
-#   3. docker compose -f docker-compose.prod.yml up -d --build
+# Reverse Proxy & HTTPS handled by host nginx.service -> 127.0.0.1:8082
 # =============================================================================
 
 services:
@@ -51,8 +38,8 @@ services:
     container_name: aquaflow-mosquitto
     restart: unless-stopped
     ports:
-      - "${MQTT_PORT:-1883}:1883"
-      - "${MQTT_WS_PORT:-9001}:9001"
+      - "127.0.0.1:${MQTT_PORT:-1883}:1883"
+      - "127.0.0.1:${MQTT_WS_PORT:-9001}:9001"
     volumes:
       - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto_data:/mosquitto/data
@@ -76,7 +63,7 @@ services:
     container_name: aquaflow-backend
     restart: unless-stopped
     ports:
-      # Port 8082 to avoid conflict with GLPI (8080) and Vaultwarden (8081)
+      # Port 8082 on localhost to avoid conflict with GLPI (8080) and Vaultwarden (8081)
       - "127.0.0.1:${SERVER_PORT:-8082}:8080"
     secrets:
       - db_password
@@ -107,26 +94,6 @@ services:
     networks:
       - aquaflow-net
 
-  # ---------------------------------------------------------------------------
-  # Caddy Reverse Proxy — Automatic HTTPS for api-aquaflow.gladwindr.me
-  # ---------------------------------------------------------------------------
-  caddy:
-    image: caddy:2-alpine
-    container_name: aquaflow-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - backend
-    networks:
-      - aquaflow-net
-
 # =============================================================================
 # Secrets (file-based, never hardcoded)
 # =============================================================================
@@ -145,8 +112,6 @@ volumes:
   postgres_data:
   mosquitto_data:
   mosquitto_log:
-  caddy_data:
-  caddy_config:
 
 # =============================================================================
 # Isolated Network (does not affect GLPI, Vaultwarden, Hani Bot)
@@ -155,4 +120,3 @@ networks:
   aquaflow-net:
     name: aquaflow-net
     driver: bridge
-
