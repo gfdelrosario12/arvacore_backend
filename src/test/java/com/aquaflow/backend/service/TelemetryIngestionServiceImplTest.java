@@ -48,18 +48,23 @@ class TelemetryIngestionServiceImplTest {
     @Mock
     private com.aquaflow.backend.infrastructure.event.SystemEventPublisher systemEventPublisher;
 
+    @Mock
+    private com.aquaflow.backend.domain.NodePairingService nodePairingService;
+
     private TelemetryIngestionServiceImpl service;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+        org.mockito.Mockito.lenient().when(nodePairingService.isMasterEnabled()).thenReturn(true);
         service = new TelemetryIngestionServiceImpl(
                 edgeNodeRepository,
                 monitoringPointRepository,
                 telemetryReadingRepository,
                 edgeNodeRegistryService,
                 payloadDecoderRegistry,
-                systemEventPublisher
+                systemEventPublisher,
+                nodePairingService
         );
     }
 

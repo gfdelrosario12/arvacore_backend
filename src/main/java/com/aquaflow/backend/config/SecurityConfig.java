@@ -76,6 +76,10 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/**").permitAll()
+                        .requestMatchers("/api/v1/pairing/request").hasAnyRole("GATEWAY", "ADMIN", "OPERATOR")
+                        .requestMatchers("/api/v1/pairing/**").hasAnyRole("ADMIN", "OPERATOR")
+                        .requestMatchers("/api/v1/system/master-state").hasAnyRole("ADMIN", "OPERATOR")
+                        .requestMatchers("/api/v1/system/health").hasAnyRole("ADMIN", "OPERATOR")
                         .requestMatchers("/api/v1/chirpstack/webhook/**", "/api/v1/lora/webhook/**").hasAnyRole("EDGE_NODE", "OPERATOR", "ADMIN")
                         .requestMatchers("/api/v1/audit/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/irrigation/emergency-stop", "/api/v1/irrigation/manual/**").hasAnyRole("ADMIN", "OPERATOR")

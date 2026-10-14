@@ -93,5 +93,35 @@ public class SystemEventPublisherServiceImpl implements SystemEventPublisher {
                 .build();
         publish(event);
     }
+
+    @Override
+    public void publishMasterStateChanged(boolean masterEnabled, String updatedBy) {
+        SystemEvent event = SystemEvent.builder()
+                .eventId(UUID.randomUUID().toString())
+                .eventType(SystemEventType.MASTER_STATE_CHANGED)
+                .timestamp(LocalDateTime.now())
+                .aggregateId("SYSTEM")
+                .payload(Map.of(
+                        "masterEnabled", masterEnabled,
+                        "updatedBy", updatedBy != null ? updatedBy : "SYSTEM"
+                ))
+                .build();
+        publish(event);
+    }
+
+    @Override
+    public void publishPairingRequestUpdated(String nodeId, String status) {
+        SystemEvent event = SystemEvent.builder()
+                .eventId(UUID.randomUUID().toString())
+                .eventType(SystemEventType.PAIRING_REQUEST_UPDATED)
+                .timestamp(LocalDateTime.now())
+                .aggregateId(nodeId)
+                .payload(Map.of(
+                        "nodeId", nodeId != null ? nodeId : "",
+                        "status", status != null ? status : ""
+                ))
+                .build();
+        publish(event);
+    }
 }
 

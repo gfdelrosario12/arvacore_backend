@@ -11,5 +11,9 @@ public interface SystemEventPublisher {
     void publishAlarm(String aggregateId, Long fieldId, String alarmType, String severity, String message);
 
     void publishEmergencyStop(String aggregateId, Long fieldId, String reason);
+
+    void publishMasterStateChanged(boolean masterEnabled, String updatedBy);
+
+    void publishPairingRequestUpdated(String nodeId, String status);
 }
 

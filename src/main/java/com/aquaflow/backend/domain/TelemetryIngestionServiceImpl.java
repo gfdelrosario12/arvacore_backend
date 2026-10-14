@@ -32,6 +32,7 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
     private final EdgeNodeRegistryService edgeNodeRegistryService;
     private final PayloadDecoderRegistry payloadDecoderRegistry;
     private final SystemEventPublisher systemEventPublisher;
+    private final NodePairingService nodePairingService;
 
     // Frame Counter deduplication cache per node
     private final Map<String, Long> lastSeenFrameCounters = new ConcurrentHashMap<>();
@@ -98,6 +99,10 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
 
         if (targetIdentifier == null || targetIdentifier.isBlank()) {
             throw new ValidationException("UNRESOLVED_NODE_IDENTITY: Node identification parameter missing");
+        }
+
+        if (!nodePairingService.isMasterEnabled()) {
+            throw new ValidationException("MASTER_OFF: Master system is turned OFF. Telemetry ingestion is suspended.");
         }
 
         EdgeNode node = resolveEdgeNode(targetIdentifier);
