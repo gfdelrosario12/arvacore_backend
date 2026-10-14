@@ -143,16 +143,28 @@ public class UserServiceImpl implements UserService {
             throw new UnauthorizedException("Invalid credentials");
         }
 
-        String accessToken = jwtUtil.generateToken(username);
+        User user = userRepository.findByUsername(username)
+                .orElse(null);
+
+        java.util.Map<String, Object> claims = new java.util.HashMap<>();
+        if (user != null) {
+            claims.put("role", user.getRole());
+            claims.put("fieldId", "1");
+        }
+
+        String accessToken = jwtUtil.generateToken(username, claims);
         String refreshToken =
                 jwtUtil.generateToken(username + "-refresh");
 
         log.info("User authenticated: {}", username);
 
+        UserResponse userResponse = user != null ? DtoMapper.toUserResponse(user) : null;
+
         return AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
                 .expiresIn(86400000L)
+                .user(userResponse)
                 .build();
     }
 
@@ -166,18 +178,30 @@ public class UserServiceImpl implements UserService {
             String realUsername =
                     username.replace("-refresh", "");
 
+            User user = userRepository.findByUsername(realUsername)
+                    .orElse(null);
+
+            java.util.Map<String, Object> claims = new java.util.HashMap<>();
+            if (user != null) {
+                claims.put("role", user.getRole());
+                claims.put("fieldId", "1");
+            }
+
             String newAccessToken =
-                    jwtUtil.generateToken(realUsername);
+                    jwtUtil.generateToken(realUsername, claims);
 
             log.info(
                     "Token refreshed for user: {}",
                     realUsername
             );
 
+            UserResponse userResponse = user != null ? DtoMapper.toUserResponse(user) : null;
+
             return AuthResponse.builder()
                     .accessToken(newAccessToken)
                     .refreshToken(refreshToken)
                     .expiresIn(86400000L)
+                    .user(userResponse)
                     .build();
         }
 
