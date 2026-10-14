@@ -21,11 +21,25 @@ public class CustomUserDetailsService implements UserDetailsService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
 
+        String authority = normalizeRoleAuthority(user.getRole());
+
         return org.springframework.security.core.userdetails.User
                 .withUsername(user.getUsername())
                 .password(user.getPassword())
-                .roles(user.getRole() != null ? user.getRole() : "VIEWER")
+                .authorities(authority)
                 .disabled(!user.isEnabled())
                 .build();
+    }
+
+    /**
+     * Normalizes a role or authority string to ensure standard ROLE_ prefixing
+     * without duplicate prefixes or illegal argument exceptions.
+     */
+    public static String normalizeRoleAuthority(String role) {
+        if (role == null || role.isBlank()) {
+            return "ROLE_VIEWER";
+        }
+        String trimmed = role.trim();
+        return trimmed.startsWith("ROLE_") ? trimmed : "ROLE_" + trimmed;
     }
 }
