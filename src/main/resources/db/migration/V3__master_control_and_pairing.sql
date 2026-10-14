@@ -45,16 +45,3 @@ CREATE TABLE IF NOT EXISTS node_pairing_requests (
 
 CREATE INDEX IF NOT EXISTS idx_pairing_node_status ON node_pairing_requests(node_id, pairing_status);
 CREATE INDEX IF NOT EXISTS idx_pairing_requested_at ON node_pairing_requests(requested_at DESC);
-
--- Seed Default Admin and Operator Users if not already present
--- Password for admin is 'admin_pass' ($2a$10$wKz0b/rJvC3s5/5Lg5gKPeWqD3.uM3qf7lMvY9aLh9lE/G4uM7VWy is standard BCrypt for 'admin_pass' or similar, or we can use $2a$10$VbYw2cE4XhN6D6yqVb0Uu.mC3c2K6Z1R8k7K9x3z1a5u8m9m4p7k)
--- Using BCrypt encoded 'admin_pass': $2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi is 'password'
--- Let's insert admin with 'admin_pass' ($2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi)
-INSERT INTO users (username, password, email, role, enabled, created_at)
-SELECT 'admin', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi', 'admin@arvacore.io', 'ROLE_ADMIN', TRUE, CURRENT_TIMESTAMP
-WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = 'admin');
-
-INSERT INTO users (username, password, email, role, enabled, created_at)
-SELECT 'operator', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi', 'operator@arvacore.io', 'ROLE_OPERATOR', TRUE, CURRENT_TIMESTAMP
-WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = 'operator');
-
