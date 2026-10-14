@@ -48,7 +48,8 @@ public class JwtTokenProvider {
     }
 
     private SecretKey getSignKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(secret);
+        String sanitized = secret != null ? secret.replaceAll("\\s+", "") : "";
+        byte[] keyBytes = Decoders.BASE64.decode(sanitized);
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
