@@ -1,11 +1,13 @@
 package com.aquaflow.backend.api;
 
 import com.aquaflow.backend.domain.EmergencyStopService;
+import com.aquaflow.backend.domain.IrrigationDecisionService;
 import com.aquaflow.backend.domain.ManualControlService;
 import com.aquaflow.backend.dto.request.EmergencyStopRequest;
 import com.aquaflow.backend.dto.request.ManualStartRequest;
 import com.aquaflow.backend.dto.request.ManualStopRequest;
 import com.aquaflow.backend.dto.response.CommandStatusResponse;
+import com.aquaflow.backend.dto.response.FieldIrrigationStatusResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,11 +18,14 @@ public class IrrigationController {
 
     private final ManualControlService manualControlService;
     private final EmergencyStopService emergencyStopService;
+    private final IrrigationDecisionService decisionService;
 
     public IrrigationController(ManualControlService manualControlService,
-                                EmergencyStopService emergencyStopService) {
+                                EmergencyStopService emergencyStopService,
+                                IrrigationDecisionService decisionService) {
         this.manualControlService = manualControlService;
         this.emergencyStopService = emergencyStopService;
+        this.decisionService = decisionService;
     }
 
     @PostMapping("/manual/start")
@@ -44,6 +49,12 @@ public class IrrigationController {
     @GetMapping("/command/{correlationId}")
     public ResponseEntity<CommandStatusResponse> getCommandStatus(@PathVariable String correlationId) {
         CommandStatusResponse response = manualControlService.getCommandStatus(correlationId);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/status")
+    public ResponseEntity<FieldIrrigationStatusResponse> getSystemStatus(@RequestParam(defaultValue = "1") Long fieldId) {
+        FieldIrrigationStatusResponse response = decisionService.getFieldIrrigationStatus(fieldId);
         return ResponseEntity.ok(response);
     }
 }

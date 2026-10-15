@@ -2,11 +2,13 @@ package com.aquaflow.backend.controller;
 
 import com.aquaflow.backend.api.IrrigationController;
 import com.aquaflow.backend.domain.EmergencyStopService;
+import com.aquaflow.backend.domain.IrrigationDecisionService;
 import com.aquaflow.backend.domain.ManualControlService;
 import com.aquaflow.backend.dto.request.EmergencyStopRequest;
 import com.aquaflow.backend.dto.request.ManualStartRequest;
 import com.aquaflow.backend.dto.request.ManualStopRequest;
 import com.aquaflow.backend.dto.response.CommandStatusResponse;
+import com.aquaflow.backend.dto.response.FieldIrrigationStatusResponse;
 import com.aquaflow.backend.entity.CommandLifecycleState;
 import com.aquaflow.backend.infrastructure.exception.GlobalExceptionHandler;
 import com.aquaflow.backend.infrastructure.exception.ResourceNotFoundException;
@@ -23,6 +25,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.time.LocalDateTime;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -38,6 +41,9 @@ class IrrigationControllerTest {
 
     @Mock
     private EmergencyStopService emergencyStopService;
+
+    @Mock
+    private IrrigationDecisionService decisionService;
 
     @InjectMocks
     private IrrigationController irrigationController;
@@ -164,6 +170,27 @@ class IrrigationControllerTest {
 
         mockMvc.perform(get("/api/v1/irrigation/command/unknown-id"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shouldReturnSystemStatusSuccessfully() throws Exception {
+        FieldIrrigationStatusResponse statusResponse = FieldIrrigationStatusResponse.builder()
+                .fieldId(1L)
+                .fieldName("Main Rice Field")
+                .isIrrigating(false)
+                .activeIrrigatingNodesCount(0)
+                .todayDeliveredVolumeLiters(150.0)
+                .lastUpdated(LocalDateTime.now())
+                .build();
+
+        when(decisionService.getFieldIrrigationStatus(eq(1L))).thenReturn(statusResponse);
+
+        mockMvc.perform(get("/api/v1/irrigation/status").param("fieldId", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fieldId").value(1))
+                .andExpect(jsonPath("$.fieldName").value("Main Rice Field"))
+                .andExpect(jsonPath("$.isIrrigating").value(false))
+                .andExpect(jsonPath("$.todayDeliveredVolumeLiters").value(150.0));
     }
 }
 
