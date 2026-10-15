@@ -76,7 +76,8 @@ public class AutoIrrigationConfig {
     // Legacy fields retained for backwards compatibility
     @Enumerated(EnumType.STRING)
     @Column(name = "schedule_mode")
-    private ScheduleMode scheduleMode;
+    @Builder.Default
+    private ScheduleMode scheduleMode = ScheduleMode.AUTOMATIC;
 
     @Column(name = "min_soil_moisture_percentage")
     private Double minSoilMoisturePercentage;

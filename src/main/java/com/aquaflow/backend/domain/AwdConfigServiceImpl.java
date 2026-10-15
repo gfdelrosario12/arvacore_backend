@@ -7,6 +7,7 @@ import com.aquaflow.backend.entity.AutoIrrigationConfig;
 import com.aquaflow.backend.entity.AwdThresholdConfig;
 import com.aquaflow.backend.entity.CropGrowthStage;
 import com.aquaflow.backend.entity.Field;
+import com.aquaflow.backend.entity.ScheduleMode;
 import com.aquaflow.backend.infrastructure.event.SystemEvent;
 import com.aquaflow.backend.infrastructure.event.SystemEventPublisher;
 import com.aquaflow.backend.infrastructure.event.SystemEventType;
@@ -172,6 +173,7 @@ public class AwdConfigServiceImpl implements AwdConfigService {
                 .targetFloodDepthCm(5.0)
                 .rainDelayHours(24)
                 .minConfidenceThreshold(0.80)
+                .scheduleMode(ScheduleMode.AUTOMATIC)
                 .configVersion(1L)
                 .updatedBy("SYSTEM")
                 .changeReason("Default initial AWD configuration")

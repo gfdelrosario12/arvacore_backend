@@ -123,7 +123,64 @@ public class NodePairingServiceImpl implements NodePairingService {
 
         String nodeId = request.getNodeId().trim();
 
-        // Check if there is an existing PENDING request for this node (idempotent / deduplication)
+        // 1. Check if node is already recognized and commissioned in EdgeNode registry
+        Optional<EdgeNode> existingNode = edgeNodeRepository.findByNodeId(nodeId);
+        if (existingNode.isPresent()) {
+            EdgeNode node = existingNode.get();
+            if (request.getMacAddress() != null && node.getIdentity() != null) {
+                node.getIdentity().setMacAddress(request.getMacAddress());
+                node.getIdentity().setIdentityValue(request.getMacAddress());
+            }
+            if (request.getHardwareModel() != null) node.setHardwareModel(request.getHardwareModel());
+            if (request.getFirmwareVersion() != null) node.setFirmwareVersion(request.getFirmwareVersion());
+            if (node.getHealthMetrics() != null) {
+                node.getHealthMetrics().setLastHeartbeat(LocalDateTime.now());
+            }
+            edgeNodeRepository.save(node);
+
+            // Re-affirm existing pairing request or create APPROVED request
+            Optional<NodePairingRequest> approvedReq = pairingRequestRepository
+                    .findFirstByNodeIdAndPairingStatusOrderByRequestedAtDesc(nodeId, PairingStatus.APPROVED);
+            NodePairingRequest entity;
+            if (approvedReq.isPresent()) {
+                entity = approvedReq.get();
+                if (request.getMacAddress() != null) entity.setMacAddress(request.getMacAddress());
+                if (request.getHardwareModel() != null) entity.setHardwareModel(request.getHardwareModel());
+                if (request.getFirmwareVersion() != null) entity.setFirmwareVersion(request.getFirmwareVersion());
+                entity.setRequestedAt(LocalDateTime.now());
+                entity = pairingRequestRepository.save(entity);
+            } else {
+                entity = NodePairingRequest.builder()
+                        .nodeId(nodeId)
+                        .macAddress(request.getMacAddress())
+                        .hardwareModel(request.getHardwareModel())
+                        .firmwareVersion(request.getFirmwareVersion())
+                        .pairingStatus(PairingStatus.APPROVED)
+                        .processedAt(LocalDateTime.now())
+                        .processedBy("SYSTEM")
+                        .requestedAt(LocalDateTime.now())
+                        .build();
+                entity = pairingRequestRepository.save(entity);
+            }
+
+            // Clean up any lingering PENDING requests for this node
+            List<NodePairingRequest> pendingList = pairingRequestRepository
+                    .findByPairingStatusOrderByRequestedAtDesc(PairingStatus.PENDING)
+                    .stream()
+                    .filter(p -> nodeId.equalsIgnoreCase(p.getNodeId()))
+                    .toList();
+            for (NodePairingRequest p : pendingList) {
+                p.setPairingStatus(PairingStatus.APPROVED);
+                p.setProcessedAt(LocalDateTime.now());
+                p.setProcessedBy("SYSTEM");
+                pairingRequestRepository.save(p);
+            }
+
+            log.info("Node {} is already COMMISSIONED in registry; returning APPROVED pairing response", nodeId);
+            return toPairingResponse(entity);
+        }
+
+        // 2. Node is not yet commissioned; check if there is an existing PENDING request (deduplication)
         Optional<NodePairingRequest> existingPending = pairingRequestRepository
                 .findFirstByNodeIdAndPairingStatusOrderByRequestedAtDesc(nodeId, PairingStatus.PENDING);
 
@@ -244,6 +301,19 @@ public class NodePairingServiceImpl implements NodePairingService {
         pairingReq.setProcessedAt(LocalDateTime.now());
         pairingReq.setProcessedBy(actor != null ? actor : "ADMIN");
         pairingRequestRepository.save(pairingReq);
+
+        // Also clean up any other PENDING requests for the same node
+        List<NodePairingRequest> otherPending = pairingRequestRepository
+                .findByPairingStatusOrderByRequestedAtDesc(PairingStatus.PENDING)
+                .stream()
+                .filter(p -> !p.getId().equals(pairingRequestId) && pairingReq.getNodeId().equalsIgnoreCase(p.getNodeId()))
+                .toList();
+        for (NodePairingRequest p : otherPending) {
+            p.setPairingStatus(PairingStatus.APPROVED);
+            p.setProcessedAt(LocalDateTime.now());
+            p.setProcessedBy(actor != null ? actor : "ADMIN");
+            pairingRequestRepository.save(p);
+        }
 
         // Check if edge node already exists in registry
         Optional<EdgeNode> existingOpt = edgeNodeRepository.findByNodeId(request.getNodeId());

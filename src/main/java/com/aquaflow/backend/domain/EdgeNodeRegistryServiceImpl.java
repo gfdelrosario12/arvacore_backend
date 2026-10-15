@@ -8,6 +8,7 @@ import com.aquaflow.backend.infrastructure.exception.ValidationException;
 import com.aquaflow.backend.infrastructure.util.DtoMapper;
 import com.aquaflow.backend.persistence.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +23,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Transactional
+@Slf4j
 public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
 
     private final EdgeNodeRepository edgeNodeRepository;
@@ -41,8 +43,10 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
 
         MonitoringZone zone = null;
         if (request.getMonitoringZoneId() != null) {
-            zone = monitoringZoneRepository.findById(request.getMonitoringZoneId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Monitoring zone not found with id: " + request.getMonitoringZoneId()));
+            zone = monitoringZoneRepository.findById(request.getMonitoringZoneId()).orElse(null);
+            if (zone == null) {
+                log.warn("Monitoring zone with id {} not found; registering node unassigned", request.getMonitoringZoneId());
+            }
         }
 
         CommunicationIdentity identity = CommunicationIdentity.builder()
@@ -111,9 +115,12 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
         EdgeNode node = findNodeOrThrow(id);
 
         if (request.getMonitoringZoneId() != null) {
-            MonitoringZone zone = monitoringZoneRepository.findById(request.getMonitoringZoneId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Monitoring zone not found with id: " + request.getMonitoringZoneId()));
-            node.setMonitoringZone(zone);
+            MonitoringZone zone = monitoringZoneRepository.findById(request.getMonitoringZoneId()).orElse(null);
+            if (zone != null) {
+                node.setMonitoringZone(zone);
+            } else {
+                log.warn("Monitoring zone with id {} not found during update; skipping zone assignment", request.getMonitoringZoneId());
+            }
         }
 
         if (request.getHardwareModel() != null) {
@@ -143,9 +150,10 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
         }
 
         if (request != null && request.getMonitoringZoneId() != null) {
-            MonitoringZone zone = monitoringZoneRepository.findById(request.getMonitoringZoneId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Monitoring zone not found with id: " + request.getMonitoringZoneId()));
-            node.setMonitoringZone(zone);
+            MonitoringZone zone = monitoringZoneRepository.findById(request.getMonitoringZoneId()).orElse(null);
+            if (zone != null) {
+                node.setMonitoringZone(zone);
+            }
         }
 
         node.setLifecycleState(NodeLifecycleState.COMMISSIONED);
