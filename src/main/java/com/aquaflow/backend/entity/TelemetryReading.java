@@ -21,7 +21,7 @@ public class TelemetryReading {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "monitoring_point_id", nullable = false)
+    @JoinColumn(name = "monitoring_point_id", nullable = true)
     private MonitoringPoint monitoringPoint;
 
     @ManyToOne(fetch = FetchType.LAZY)
