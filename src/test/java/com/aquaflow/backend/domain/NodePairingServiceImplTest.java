@@ -196,4 +196,24 @@ class NodePairingServiceImplTest {
         verify(pairingRequestRepository).save(duplicatePending);
         verify(edgeNodeRegistryService).commissionNode(eq(2L), any());
     }
+
+    @Test
+    @DisplayName("getPairingStatusByNodeId: returns APPROVED for commissioned node")
+    void testGetPairingStatusByNodeId_CommissionedNode() {
+        EdgeNode node = EdgeNode.builder()
+                .id(2L)
+                .nodeId("NODE-C3E8")
+                .lifecycleState(NodeLifecycleState.COMMISSIONED)
+                .identity(CommunicationIdentity.builder().macAddress("8C:94:DF:6F:C3:E8").build())
+                .build();
+
+        when(edgeNodeRepository.findByNodeId("NODE-C3E8")).thenReturn(Optional.of(node));
+        when(pairingRequestRepository.findFirstByNodeIdOrderByRequestedAtDesc("NODE-C3E8")).thenReturn(Optional.empty());
+
+        PairingRequestResponse response = nodePairingService.getPairingStatusByNodeId("NODE-C3E8");
+
+        assertNotNull(response);
+        assertEquals("NODE-C3E8", response.getNodeId());
+        assertEquals(PairingStatus.APPROVED, response.getPairingStatus());
+    }
 }

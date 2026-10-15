@@ -76,7 +76,7 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/**").permitAll()
-                        .requestMatchers("/api/v1/pairing/request").hasAnyRole("GATEWAY", "ADMIN", "OPERATOR")
+                        .requestMatchers("/api/v1/pairing/request", "/api/v1/pairing/status/**").hasAnyRole("GATEWAY", "ADMIN", "OPERATOR")
                         .requestMatchers("/api/v1/pairing/**").hasAnyRole("ADMIN", "OPERATOR")
                         .requestMatchers("/api/v1/system/master-state").hasAnyRole("ADMIN", "OPERATOR")
                         .requestMatchers("/api/v1/system/health").hasAnyRole("ADMIN", "OPERATOR")

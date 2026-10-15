@@ -256,6 +256,41 @@ public class NodePairingServiceImpl implements NodePairingService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public PairingRequestResponse getPairingStatusByNodeId(String nodeId) {
+        String cleanNodeId = (nodeId != null) ? nodeId.trim() : "";
+        Optional<EdgeNode> existingNode = edgeNodeRepository.findByNodeId(cleanNodeId);
+        if (existingNode.isPresent()) {
+            EdgeNode node = existingNode.get();
+            Optional<NodePairingRequest> latestReq = pairingRequestRepository
+                    .findFirstByNodeIdOrderByRequestedAtDesc(cleanNodeId);
+            if (latestReq.isPresent()) {
+                return toPairingResponse(latestReq.get());
+            }
+            return PairingRequestResponse.builder()
+                    .nodeId(cleanNodeId)
+                    .hardwareModel(node.getHardwareModel())
+                    .firmwareVersion(node.getFirmwareVersion())
+                    .macAddress(node.getIdentity() != null ? node.getIdentity().getMacAddress() : null)
+                    .pairingStatus(PairingStatus.APPROVED)
+                    .recognized(true)
+                    .existingEdgeNodeId(node.getId())
+                    .existingLifecycleState(node.getLifecycleState() != null ? node.getLifecycleState().name() : null)
+                    .existingZoneId(node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null)
+                    .existingZoneName(node.getMonitoringZone() != null ? node.getMonitoringZone().getName() : null)
+                    .build();
+        }
+
+        Optional<NodePairingRequest> latestReq = pairingRequestRepository
+                .findFirstByNodeIdOrderByRequestedAtDesc(cleanNodeId);
+        if (latestReq.isPresent()) {
+            return toPairingResponse(latestReq.get());
+        }
+
+        throw new ResourceNotFoundException("No pairing record or node found with nodeId: " + cleanNodeId);
+    }
+
+    @Override
     public PairingRequestResponse rejectPairingRequest(Long id, PairingRejectionRequest request, String actor) {
         NodePairingRequest req = pairingRequestRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Pairing request not found: " + id));

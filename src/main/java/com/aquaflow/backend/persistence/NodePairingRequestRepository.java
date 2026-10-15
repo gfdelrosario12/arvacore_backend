@@ -10,6 +10,7 @@ import java.util.Optional;
 public interface NodePairingRequestRepository extends JpaRepository<NodePairingRequest, Long> {
     List<NodePairingRequest> findByPairingStatusOrderByRequestedAtDesc(PairingStatus status);
     List<NodePairingRequest> findByNodeIdOrderByRequestedAtDesc(String nodeId);
+    Optional<NodePairingRequest> findFirstByNodeIdOrderByRequestedAtDesc(String nodeId);
     Optional<NodePairingRequest> findFirstByNodeIdAndPairingStatusOrderByRequestedAtDesc(String nodeId, PairingStatus status);
 }
 

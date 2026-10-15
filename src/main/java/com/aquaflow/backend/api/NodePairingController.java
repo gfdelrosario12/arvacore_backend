@@ -75,6 +75,12 @@ public class NodePairingController {
         return ResponseEntity.ok(nodePairingService.getPairingRequest(id));
     }
 
+    @GetMapping("/pairing/status/{nodeId}")
+    public ResponseEntity<PairingRequestResponse> getPairingStatusByNodeId(@PathVariable String nodeId) {
+        log.info("Pairing status check received for nodeId: {}", nodeId);
+        return ResponseEntity.ok(nodePairingService.getPairingStatusByNodeId(nodeId));
+    }
+
     @PostMapping("/pairing/requests/{id}/reject")
     public ResponseEntity<PairingRequestResponse> rejectPairingRequest(
             @PathVariable Long id,

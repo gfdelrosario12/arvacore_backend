@@ -23,6 +23,7 @@ public interface NodePairingService {
     List<PairingRequestResponse> getPendingPairingRequests();
     List<PairingRequestResponse> getAllPairingRequests();
     PairingRequestResponse getPairingRequest(Long id);
+    PairingRequestResponse getPairingStatusByNodeId(String nodeId);
     PairingRequestResponse rejectPairingRequest(Long id, PairingRejectionRequest request, String actor);
     EdgeNodeResponse approveAndAssignNode(Long pairingRequestId, RegisterNodeRequest request, String actor);
 
