@@ -42,6 +42,9 @@ public class NodePairingRequest {
     @Column(name = "requested_at", nullable = false)
     private LocalDateTime requestedAt;
 
+    @Column(name = "expires_at", nullable = false)
+    private LocalDateTime expiresAt;
+
     @Column(name = "processed_at")
     private LocalDateTime processedAt;
 
@@ -53,9 +56,17 @@ public class NodePairingRequest {
         if (requestedAt == null) {
             requestedAt = LocalDateTime.now();
         }
+        if (expiresAt == null) {
+            expiresAt = requestedAt.plusMinutes(30);
+        }
         if (pairingStatus == null) {
             pairingStatus = PairingStatus.PENDING;
         }
+    }
+
+    public boolean isExpired() {
+        return pairingStatus == PairingStatus.EXPIRED ||
+                (pairingStatus == PairingStatus.PENDING && expiresAt != null && LocalDateTime.now().isAfter(expiresAt));
     }
 }
 

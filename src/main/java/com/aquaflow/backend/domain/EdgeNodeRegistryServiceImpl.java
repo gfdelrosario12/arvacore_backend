@@ -142,6 +142,45 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
     }
 
     @Override
+    public EdgeNodeResponse assignNodeToField(Long id, AssignNodeFieldRequest request) {
+        EdgeNode node = findNodeOrThrow(id);
+
+        if (request.getMonitoringZoneId() != null) {
+            MonitoringZone zone = monitoringZoneRepository.findById(request.getMonitoringZoneId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Monitoring zone not found: " + request.getMonitoringZoneId()));
+
+            if (request.getFieldId() != null && zone.getField() != null) {
+                if (!request.getFieldId().equals(zone.getField().getId())) {
+                    throw new ValidationException(String.format("Monitoring zone %d belongs to field %d, not requested field %d",
+                            zone.getId(), zone.getField().getId(), request.getFieldId()));
+                }
+            }
+
+            Long previousZoneId = node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null;
+            node.setMonitoringZone(zone);
+            EdgeNode saved = edgeNodeRepository.save(node);
+
+            // Audit log
+            IrrigationAuditLog auditLog = IrrigationAuditLog.builder()
+                    .eventType("NODE_FIELD_ASSIGNMENT_CHANGED")
+                    .actor("ARVALINK_ADMIN")
+                    .entityType("EdgeNode")
+                    .entityId(String.valueOf(id))
+                    .payloadJson(String.format("{\"nodeId\":\"%s\",\"previousZoneId\":%s,\"newZoneId\":%d,\"fieldId\":%d}",
+                            saved.getNodeId(), previousZoneId != null ? previousZoneId : "null", zone.getId(),
+                            zone.getField() != null ? zone.getField().getId() : null))
+                    .build();
+            auditLogRepository.save(auditLog);
+
+            log.info("Node {} successfully assigned to field {} and zone {}",
+                    saved.getNodeId(), zone.getField() != null ? zone.getField().getName() : "N/A", zone.getName());
+            return DtoMapper.toEdgeNodeResponse(saved);
+        }
+
+        return DtoMapper.toEdgeNodeResponse(node);
+    }
+
+    @Override
     public CommissionNodeResponse commissionNode(Long id, CommissionNodeRequest request) {
         EdgeNode node = findNodeOrThrow(id);
 

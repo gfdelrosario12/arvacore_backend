@@ -21,6 +21,8 @@ public class PairingRequestResponse {
     private PairingStatus pairingStatus;
     private String rejectionReason;
     private LocalDateTime requestedAt;
+    private LocalDateTime expiresAt;
+    private boolean expired;
     private LocalDateTime processedAt;
     private String processedBy;
 

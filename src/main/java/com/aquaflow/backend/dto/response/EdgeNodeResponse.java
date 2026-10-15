@@ -27,11 +27,21 @@ public class EdgeNodeResponse {
     private Integer signalDbm;
     private LocalDateTime lastHeartbeat;
     private Long monitoringZoneId;
+    private String monitoringZoneName;
+    private Long fieldId;
+    private String fieldName;
     private String hardwareModel;
     private String firmwareVersion;
     private Long version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    public String getMonitoringZoneName() { return monitoringZoneName; }
+    public void setMonitoringZoneName(String monitoringZoneName) { this.monitoringZoneName = monitoringZoneName; }
+    public Long getFieldId() { return fieldId; }
+    public void setFieldId(Long fieldId) { this.fieldId = fieldId; }
+    public String getFieldName() { return fieldName; }
+    public void setFieldName(String fieldName) { this.fieldName = fieldName; }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

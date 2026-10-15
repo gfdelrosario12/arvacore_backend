@@ -21,6 +21,8 @@ public interface EdgeNodeRegistryService {
 
     EdgeNodeResponse updateNode(Long id, RegisterNodeRequest request);
 
+    EdgeNodeResponse assignNodeToField(Long id, AssignNodeFieldRequest request);
+
     CommissionNodeResponse commissionNode(Long id, CommissionNodeRequest request);
 
     EdgeNodeResponse decommissionNode(Long id);

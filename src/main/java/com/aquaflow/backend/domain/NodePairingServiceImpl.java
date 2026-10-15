@@ -185,15 +185,36 @@ public class NodePairingServiceImpl implements NodePairingService {
                 .findFirstByNodeIdAndPairingStatusOrderByRequestedAtDesc(nodeId, PairingStatus.PENDING);
 
         NodePairingRequest entity;
+        LocalDateTime now = LocalDateTime.now();
         if (existingPending.isPresent()) {
-            entity = existingPending.get();
-            // Update latest seen parameters
-            if (request.getMacAddress() != null) entity.setMacAddress(request.getMacAddress());
-            if (request.getHardwareModel() != null) entity.setHardwareModel(request.getHardwareModel());
-            if (request.getFirmwareVersion() != null) entity.setFirmwareVersion(request.getFirmwareVersion());
-            entity.setRequestedAt(LocalDateTime.now());
-            entity = pairingRequestRepository.save(entity);
-            log.info("Updated existing PENDING pairing request for node {}", nodeId);
+            NodePairingRequest pending = existingPending.get();
+            if (pending.isExpired()) {
+                pending.setPairingStatus(PairingStatus.EXPIRED);
+                pending.setProcessedAt(now);
+                pending.setProcessedBy("SYSTEM_EXPIRATION");
+                pairingRequestRepository.save(pending);
+
+                // Expired request: allow fresh pairing request with new 30-minute expiration window
+                entity = NodePairingRequest.builder()
+                        .nodeId(nodeId)
+                        .macAddress(request.getMacAddress())
+                        .hardwareModel(request.getHardwareModel())
+                        .firmwareVersion(request.getFirmwareVersion())
+                        .pairingStatus(PairingStatus.PENDING)
+                        .requestedAt(now)
+                        .expiresAt(now.plusMinutes(30))
+                        .build();
+                entity = pairingRequestRepository.save(entity);
+                log.info("Previous pairing request expired; created fresh PENDING request for node {}", nodeId);
+            } else {
+                entity = pending;
+                // Active window: update hardware/firmware metadata WITHOUT resetting expiresAt
+                if (request.getMacAddress() != null) entity.setMacAddress(request.getMacAddress());
+                if (request.getHardwareModel() != null) entity.setHardwareModel(request.getHardwareModel());
+                if (request.getFirmwareVersion() != null) entity.setFirmwareVersion(request.getFirmwareVersion());
+                entity = pairingRequestRepository.save(entity);
+                log.info("Updated existing PENDING pairing request for node {} without extending expiration (expires at {})", nodeId, entity.getExpiresAt());
+            }
         } else {
             entity = NodePairingRequest.builder()
                     .nodeId(nodeId)
@@ -201,10 +222,11 @@ public class NodePairingServiceImpl implements NodePairingService {
                     .hardwareModel(request.getHardwareModel())
                     .firmwareVersion(request.getFirmwareVersion())
                     .pairingStatus(PairingStatus.PENDING)
-                    .requestedAt(LocalDateTime.now())
+                    .requestedAt(now)
+                    .expiresAt(now.plusMinutes(30))
                     .build();
             entity = pairingRequestRepository.save(entity);
-            log.info("Created new PENDING pairing request for node {}", nodeId);
+            log.info("Created new PENDING pairing request for node {} (expires at {})", nodeId, entity.getExpiresAt());
         }
 
         // Audit log
@@ -230,12 +252,21 @@ public class NodePairingServiceImpl implements NodePairingService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<PairingRequestResponse> getPendingPairingRequests() {
-        return pairingRequestRepository.findByPairingStatusOrderByRequestedAtDesc(PairingStatus.PENDING)
-                .stream()
-                .map(this::toPairingResponse)
-                .collect(Collectors.toList());
+        List<NodePairingRequest> pendingList = pairingRequestRepository.findByPairingStatusOrderByRequestedAtDesc(PairingStatus.PENDING);
+        List<PairingRequestResponse> active = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+        for (NodePairingRequest req : pendingList) {
+            if (req.isExpired()) {
+                req.setPairingStatus(PairingStatus.EXPIRED);
+                req.setProcessedAt(now);
+                req.setProcessedBy("SYSTEM_EXPIRATION");
+                pairingRequestRepository.save(req);
+            } else {
+                active.add(toPairingResponse(req));
+            }
+        }
+        return active;
     }
 
     @Override
@@ -331,6 +362,14 @@ public class NodePairingServiceImpl implements NodePairingService {
         NodePairingRequest pairingReq = pairingRequestRepository.findById(pairingRequestId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pairing request not found: " + pairingRequestId));
 
+        if (pairingReq.isExpired()) {
+            pairingReq.setPairingStatus(PairingStatus.EXPIRED);
+            pairingReq.setProcessedAt(LocalDateTime.now());
+            pairingReq.setProcessedBy("SYSTEM_EXPIRATION");
+            pairingRequestRepository.save(pairingReq);
+            throw new ValidationException("PAIRING_EXPIRED: Pairing request has expired (30-minute window exceeded). A new pairing request must be initiated from the node.");
+        }
+
         // Ensure pairing request is pending or can be re-approved idempotently
         pairingReq.setPairingStatus(PairingStatus.APPROVED);
         pairingReq.setProcessedAt(LocalDateTime.now());
@@ -413,6 +452,8 @@ public class NodePairingServiceImpl implements NodePairingService {
                 .pairingStatus(req.getPairingStatus())
                 .rejectionReason(req.getRejectionReason())
                 .requestedAt(req.getRequestedAt())
+                .expiresAt(req.getExpiresAt())
+                .expired(req.isExpired())
                 .processedAt(req.getProcessedAt())
                 .processedBy(req.getProcessedBy())
                 .recognized(recognized)

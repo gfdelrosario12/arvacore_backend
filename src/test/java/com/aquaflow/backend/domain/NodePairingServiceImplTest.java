@@ -216,4 +216,75 @@ class NodePairingServiceImplTest {
         assertEquals("NODE-C3E8", response.getNodeId());
         assertEquals(PairingStatus.APPROVED, response.getPairingStatus());
     }
+
+    @Test
+    @DisplayName("approveAndAssignNode: throws ValidationException when pairing request is expired (>30 minutes)")
+    void testApproveAndAssignNode_ExpiredRequest_ThrowsValidationException() {
+        LocalDateTime requestedAt = LocalDateTime.now().minusMinutes(35);
+        LocalDateTime expiresAt = requestedAt.plusMinutes(30);
+
+        NodePairingRequest expiredReq = NodePairingRequest.builder()
+                .id(999L)
+                .nodeId("NODE-EXPIRED")
+                .macAddress("AA:BB:CC:DD:EE:99")
+                .pairingStatus(PairingStatus.PENDING)
+                .requestedAt(requestedAt)
+                .expiresAt(expiresAt)
+                .build();
+
+        when(pairingRequestRepository.findById(999L)).thenReturn(Optional.of(expiredReq));
+
+        RegisterNodeRequest registerReq = RegisterNodeRequest.builder()
+                .nodeId("NODE-EXPIRED")
+                .identityType(CommunicationIdentityType.MAC_ADDRESS)
+                .identityValue("AA:BB:CC:DD:EE:99")
+                .build();
+
+        com.aquaflow.backend.infrastructure.exception.ValidationException ex = assertThrows(
+                com.aquaflow.backend.infrastructure.exception.ValidationException.class,
+                () -> nodePairingService.approveAndAssignNode(999L, registerReq, "ADMIN")
+        );
+
+        assertTrue(ex.getMessage().contains("PAIRING_EXPIRED"));
+        assertEquals(PairingStatus.EXPIRED, expiredReq.getPairingStatus());
+        verify(pairingRequestRepository).save(expiredReq);
+    }
+
+    @Test
+    @DisplayName("submitPairingRequest: duplicate request within window updates metadata without extending expiresAt")
+    void testSubmitPairingRequest_DuplicateWithinWindow_PreservesExpiresAt() {
+        LocalDateTime requestedAt = LocalDateTime.now().minusMinutes(10);
+        LocalDateTime originalExpiresAt = requestedAt.plusMinutes(30);
+
+        NodePairingRequest activePending = NodePairingRequest.builder()
+                .id(50L)
+                .nodeId("NODE-50")
+                .macAddress("AA:BB:CC:DD:EE:50")
+                .hardwareModel("ESP32-OLD")
+                .firmwareVersion("1.0.0")
+                .pairingStatus(PairingStatus.PENDING)
+                .requestedAt(requestedAt)
+                .expiresAt(originalExpiresAt)
+                .build();
+
+        when(edgeNodeRepository.findByNodeId("NODE-50")).thenReturn(Optional.empty());
+        when(pairingRequestRepository.findFirstByNodeIdAndPairingStatusOrderByRequestedAtDesc("NODE-50", PairingStatus.PENDING))
+                .thenReturn(Optional.of(activePending));
+        when(pairingRequestRepository.save(any(NodePairingRequest.class))).thenAnswer(i -> i.getArgument(0));
+
+        NodePairingSubmissionRequest submission = NodePairingSubmissionRequest.builder()
+                .nodeId("NODE-50")
+                .macAddress("AA:BB:CC:DD:EE:50")
+                .hardwareModel("ESP32-NEW")
+                .firmwareVersion("2.1.0")
+                .build();
+
+        PairingRequestResponse response = nodePairingService.submitPairingRequest(submission);
+
+        assertNotNull(response);
+        assertEquals("NODE-50", response.getNodeId());
+        assertEquals("ESP32-NEW", response.getHardwareModel());
+        assertEquals(originalExpiresAt, activePending.getExpiresAt());
+        assertFalse(response.isExpired());
+    }
 }

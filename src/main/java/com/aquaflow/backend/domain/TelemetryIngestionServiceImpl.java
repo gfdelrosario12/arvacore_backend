@@ -147,8 +147,12 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
                     continue;
                 }
 
+                Field currentField = (node.getMonitoringZone() != null)
+                        ? node.getMonitoringZone().getField() : null;
+
                 TelemetryReading reading = TelemetryReading.builder()
                         .edgeNode(node)
+                        .field(currentField)
                         .monitoringPoint(primaryPoint)
                         .sensorType(type)
                         .valueNum(val)

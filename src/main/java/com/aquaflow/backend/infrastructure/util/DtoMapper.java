@@ -158,6 +158,13 @@ public class DtoMapper {
 
     public static EdgeNodeResponse toEdgeNodeResponse(EdgeNode node) {
         if (node == null) return null;
+        Long zoneId = node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null;
+        String zoneName = node.getMonitoringZone() != null ? node.getMonitoringZone().getName() : null;
+        Long fieldId = (node.getMonitoringZone() != null && node.getMonitoringZone().getField() != null)
+                ? node.getMonitoringZone().getField().getId() : null;
+        String fieldName = (node.getMonitoringZone() != null && node.getMonitoringZone().getField() != null)
+                ? node.getMonitoringZone().getField().getName() : null;
+
         return EdgeNodeResponse.builder()
                 .id(node.getId())
                 .nodeId(node.getNodeId())
@@ -171,7 +178,10 @@ public class DtoMapper {
                 .solarVoltage(node.getHealthMetrics() != null ? node.getHealthMetrics().getSolarVoltage() : null)
                 .signalDbm(node.getHealthMetrics() != null ? node.getHealthMetrics().getSignalDbm() : null)
                 .lastHeartbeat(node.getHealthMetrics() != null ? node.getHealthMetrics().getLastHeartbeat() : null)
-                .monitoringZoneId(node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null)
+                .monitoringZoneId(zoneId)
+                .monitoringZoneName(zoneName)
+                .fieldId(fieldId)
+                .fieldName(fieldName)
                 .hardwareModel(node.getHardwareModel())
                 .firmwareVersion(node.getFirmwareVersion())
                 .version(node.getVersion())

@@ -28,6 +28,10 @@ public class TelemetryReading {
     @JoinColumn(name = "edge_node_id")
     private EdgeNode edgeNode;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "field_id", nullable = true)
+    private Field field;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "sensor_type", nullable = false)
     private SensorType sensorType;
