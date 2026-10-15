@@ -112,7 +112,16 @@ public class SecurityConfig {
                     .toList());
         }
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Correlation-ID", "X-Webhook-Secret", "X-Downlink-Secret"));
+        configuration.setAllowedHeaders(List.of(
+                "Authorization",
+                "Content-Type",
+                "Accept",
+                "Origin",
+                "X-Client",
+                "X-Correlation-ID",
+                "X-Webhook-Secret",
+                "X-Downlink-Secret"
+        ));
         configuration.setExposedHeaders(List.of("X-Correlation-ID", "Authorization"));
         configuration.setAllowCredentials(true);
 
