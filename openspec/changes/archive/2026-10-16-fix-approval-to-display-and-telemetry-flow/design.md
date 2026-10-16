@@ -12,3 +12,4 @@
 3. **Edge Node & Zone Enrichment**:
    - `EdgeNodeRegistryServiceImpl` and `DtoMapper` enrich node DTOs with their latest telemetry readings.
    - `ZoneServiceImpl` dynamically resolves monitoring zones, aggregates live node readings, and populates `assignedNodeIds`.
+

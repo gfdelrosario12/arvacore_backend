@@ -18,3 +18,4 @@ Investigation identified four root causes in the backend:
 ## 3. Verification & Compliance
 - Ensure all 222 backend unit and integration tests pass cleanly (`./mvnw test`).
 - Ensure no unsupported sensors (e.g. ambient temperature or humidity) are fabricated or simulated.
+
