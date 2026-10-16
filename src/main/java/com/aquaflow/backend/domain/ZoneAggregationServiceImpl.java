@@ -12,6 +12,7 @@ import com.aquaflow.backend.persistence.ZoneTelemetryAggregateRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -43,7 +44,7 @@ public class ZoneAggregationServiceImpl implements ZoneAggregationService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ZoneTelemetryResponse calculateAndCacheZoneTelemetry(Long zoneId) {
         MonitoringZone zone = monitoringZoneRepository.findById(zoneId)
                 .orElseThrow(() -> new ResourceNotFoundException("MonitoringZone not found with id: " + zoneId));
@@ -126,9 +127,16 @@ public class ZoneAggregationServiceImpl implements ZoneAggregationService {
                             humidityValues.add(r.getValueNum());
                         } else if (r.getSensorType() == SensorType.WATER_LEVEL_DISTANCE) {
                             // JSN-SR04T ultrasonic sensor measures distance from sensor head to water surface.
-                            // Water depth (cm) = datum offset (30.0 cm) - measured distance (cm), clamped >= 0.0.
-                            double depth = Math.max(0.0, 30.0 - r.getValueNum());
-                            waterLevelValues.add(Math.round(depth * 100.0) / 100.0);
+                            // Water depth (cm) = datum offset (20.0 cm) - measured distance (cm)
+                            // Valid still-well depth range is -30.0 cm to +30.0 cm (distance ~ 5.0 cm to 50.0 cm).
+                            // Out-of-bounds distances (e.g. bench tests or sensor dislodged) are ignored.
+                            double distance = r.getValueNum();
+                            if (distance >= 5.0 && distance <= 50.0) {
+                                double depth = 20.0 - distance;
+                                if (depth >= -30.0 && depth <= 30.0) {
+                                    waterLevelValues.add(Math.round(depth * 100.0) / 100.0);
+                                }
+                            }
                         } else if (r.getSensorType() == SensorType.WATER_FLOW) {
                             continue;
                         } else if (r.getSensorType() == SensorType.BATTERY_VOLTAGE) {
@@ -177,7 +185,7 @@ public class ZoneAggregationServiceImpl implements ZoneAggregationService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public ZoneTelemetryResponse getLatestZoneTelemetry(Long zoneId) {
         Optional<ZoneTelemetryAggregate> existing = zoneTelemetryAggregateRepository.findTopByZoneIdOrderByCalculatedAtDesc(zoneId);
 
@@ -189,7 +197,7 @@ public class ZoneAggregationServiceImpl implements ZoneAggregationService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public ZoneTelemetryTrendResponse getZoneTelemetryTrend(Long fieldId, Long zoneId, LocalDateTime startTime, LocalDateTime endTime) {
         LocalDateTime start = startTime != null ? startTime : LocalDateTime.now().minusHours(24);
         LocalDateTime end = endTime != null ? endTime : LocalDateTime.now();

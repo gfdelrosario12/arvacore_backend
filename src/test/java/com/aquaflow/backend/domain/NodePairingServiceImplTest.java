@@ -99,8 +99,8 @@ class NodePairingServiceImplTest {
     }
 
     @Test
-    @DisplayName("submitPairingRequest: already commissioned node returns APPROVED immediately")
-    void testSubmitPairingRequest_AlreadyCommissioned_ReturnsApproved() {
+    @DisplayName("submitPairingRequest: existing node creates a PENDING request for operator approval")
+    void testSubmitPairingRequest_ExistingNode_CreatesPendingRequest() {
         NodePairingSubmissionRequest request = NodePairingSubmissionRequest.builder()
                 .nodeId("NODE-C3E8")
                 .macAddress("8C:94:DF:6F:C3:E8")
@@ -125,24 +125,23 @@ class NodePairingServiceImplTest {
 
         when(edgeNodeRepository.findByNodeId("NODE-C3E8")).thenReturn(Optional.of(commissionedNode));
 
-        NodePairingRequest existingApproved = NodePairingRequest.builder()
+        NodePairingRequest pendingEntity = NodePairingRequest.builder()
                 .id(4L)
                 .nodeId("NODE-C3E8")
                 .macAddress("8C:94:DF:6F:C3:E8")
-                .pairingStatus(PairingStatus.APPROVED)
+                .pairingStatus(PairingStatus.PENDING)
                 .requestedAt(LocalDateTime.now())
+                .expiresAt(LocalDateTime.now().plusMinutes(30))
                 .build();
 
-        when(pairingRequestRepository.findFirstByNodeIdAndPairingStatusOrderByRequestedAtDesc("NODE-C3E8", PairingStatus.APPROVED))
-                .thenReturn(Optional.of(existingApproved));
-        when(pairingRequestRepository.save(any(NodePairingRequest.class))).thenReturn(existingApproved);
-        when(pairingRequestRepository.findByPairingStatusOrderByRequestedAtDesc(PairingStatus.PENDING))
-                .thenReturn(Collections.emptyList());
+        when(pairingRequestRepository.findFirstByNodeIdAndPairingStatusOrderByRequestedAtDesc("NODE-C3E8", PairingStatus.PENDING))
+                .thenReturn(Optional.empty());
+        when(pairingRequestRepository.save(any(NodePairingRequest.class))).thenReturn(pendingEntity);
 
         PairingRequestResponse response = nodePairingService.submitPairingRequest(request);
 
         assertNotNull(response);
-        assertEquals(PairingStatus.APPROVED, response.getPairingStatus());
+        assertEquals(PairingStatus.PENDING, response.getPairingStatus());
         assertEquals("NODE-C3E8", response.getNodeId());
     }
 

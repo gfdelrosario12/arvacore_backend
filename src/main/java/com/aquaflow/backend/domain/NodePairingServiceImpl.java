@@ -123,7 +123,7 @@ public class NodePairingServiceImpl implements NodePairingService {
 
         String nodeId = request.getNodeId().trim();
 
-        // 1. Check if node is already recognized and commissioned in EdgeNode registry
+        // 1. Check if node is already recognized in EdgeNode registry to update metadata
         Optional<EdgeNode> existingNode = edgeNodeRepository.findByNodeId(nodeId);
         if (existingNode.isPresent()) {
             EdgeNode node = existingNode.get();
@@ -137,50 +137,9 @@ public class NodePairingServiceImpl implements NodePairingService {
                 node.getHealthMetrics().setLastHeartbeat(LocalDateTime.now());
             }
             edgeNodeRepository.save(node);
-
-            // Re-affirm existing pairing request or create APPROVED request
-            Optional<NodePairingRequest> approvedReq = pairingRequestRepository
-                    .findFirstByNodeIdAndPairingStatusOrderByRequestedAtDesc(nodeId, PairingStatus.APPROVED);
-            NodePairingRequest entity;
-            if (approvedReq.isPresent()) {
-                entity = approvedReq.get();
-                if (request.getMacAddress() != null) entity.setMacAddress(request.getMacAddress());
-                if (request.getHardwareModel() != null) entity.setHardwareModel(request.getHardwareModel());
-                if (request.getFirmwareVersion() != null) entity.setFirmwareVersion(request.getFirmwareVersion());
-                entity.setRequestedAt(LocalDateTime.now());
-                entity = pairingRequestRepository.save(entity);
-            } else {
-                entity = NodePairingRequest.builder()
-                        .nodeId(nodeId)
-                        .macAddress(request.getMacAddress())
-                        .hardwareModel(request.getHardwareModel())
-                        .firmwareVersion(request.getFirmwareVersion())
-                        .pairingStatus(PairingStatus.APPROVED)
-                        .processedAt(LocalDateTime.now())
-                        .processedBy("SYSTEM")
-                        .requestedAt(LocalDateTime.now())
-                        .build();
-                entity = pairingRequestRepository.save(entity);
-            }
-
-            // Clean up any lingering PENDING requests for this node
-            List<NodePairingRequest> pendingList = pairingRequestRepository
-                    .findByPairingStatusOrderByRequestedAtDesc(PairingStatus.PENDING)
-                    .stream()
-                    .filter(p -> nodeId.equalsIgnoreCase(p.getNodeId()))
-                    .toList();
-            for (NodePairingRequest p : pendingList) {
-                p.setPairingStatus(PairingStatus.APPROVED);
-                p.setProcessedAt(LocalDateTime.now());
-                p.setProcessedBy("SYSTEM");
-                pairingRequestRepository.save(p);
-            }
-
-            log.info("Node {} is already COMMISSIONED in registry; returning APPROVED pairing response", nodeId);
-            return toPairingResponse(entity);
         }
 
-        // 2. Node is not yet commissioned; check if there is an existing PENDING request (deduplication)
+        // 2. Manage PENDING pairing request with 30-minute expiration window (deduplication)
         Optional<NodePairingRequest> existingPending = pairingRequestRepository
                 .findFirstByNodeIdAndPairingStatusOrderByRequestedAtDesc(nodeId, PairingStatus.PENDING);
 
@@ -443,13 +402,15 @@ public class NodePairingServiceImpl implements NodePairingService {
         String zoneName = (nodeOpt.isPresent() && nodeOpt.get().getMonitoringZone() != null)
                 ? nodeOpt.get().getMonitoringZone().getName() : null;
 
+        PairingStatus status = req.isExpired() ? PairingStatus.EXPIRED : req.getPairingStatus();
+
         return PairingRequestResponse.builder()
                 .id(req.getId())
                 .nodeId(req.getNodeId())
                 .hardwareModel(req.getHardwareModel())
                 .firmwareVersion(req.getFirmwareVersion())
                 .macAddress(req.getMacAddress())
-                .pairingStatus(req.getPairingStatus())
+                .pairingStatus(status)
                 .rejectionReason(req.getRejectionReason())
                 .requestedAt(req.getRequestedAt())
                 .expiresAt(req.getExpiresAt())
