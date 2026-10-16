@@ -292,12 +292,23 @@ All REST endpoints are prefixed with `/api/v1/`.
 ### Edge Node Management (`/api/v1/nodes`)
 
 | HTTP Method | Endpoint Path | Description | Access Role |
-| :--- | :--- | :--- | :---: |
+| :--- | :--- | :--- | :---:|
 | `GET` | `/api/v1/nodes` | List registered ESP32 edge nodes with optional status filter | `ROLE_VIEWER`+ |
 | `GET` | `/api/v1/nodes/{id}` | Fetch single edge node metadata and configuration | `ROLE_VIEWER`+ |
 | `POST` | `/api/v1/nodes` | Register a new ESP32 edge node device | `ROLE_OPERATOR`+ |
 | `PUT` | `/api/v1/nodes/{id}` | Update node configuration or zone association | `ROLE_OPERATOR`+ |
+| `PUT` | `/api/v1/nodes/{id}/field-assignment` | Dynamically reassign node to field and monitoring zone | `ROLE_OPERATOR`+ |
 | `GET` | `/api/v1/nodes/{id}/health` | Retrieve current health state (`HEALTHY`, `DEGRADED`, `CRITICAL`) | `ROLE_VIEWER`+ |
+
+### Node Pairing & Gateway Discovery (`/api/v1/pairing`)
+
+| HTTP Method | Endpoint Path | Description | Access Role |
+| :--- | :--- | :--- | :---:|
+| `GET` | `/api/v1/pairing/requests` | List discovered node pairing requests (with 30m expiration) | `ROLE_OPERATOR`+ |
+| `POST` | `/api/v1/pairing/request` | Submit physical node pairing request from gateway / node | Public / Gateway |
+| `POST` | `/api/v1/pairing/approve/{nodeId}` | Approve pairing request and assign field and monitoring zone | `ROLE_OPERATOR`+ |
+| `GET` | `/api/v1/pairing/status/{nodeId}` | Query pairing status for node hardware (checks expiration) | Public / Gateway |
+
 
 ### Telemetry & Zone Aggregates (`/api/v1/telemetry`)
 
@@ -409,8 +420,14 @@ flowchart LR
 | Version | Migration Script | Description |
 | :--- | :--- | :--- |
 | **V1** | `V1__init_schema.sql` | Core schema initialization (`fields`, `monitoring_zones`, `edge_nodes`, `telemetry_readings`, `users`) |
-| **V2** | `V2__seed_initial_data.sql` | Base role assignments and default admin/operator user seeding |
-| **V3** | `V3__add_telemetry_indexes.sql` | Time-series composite indexes on `telemetry_readings (node_id, timestamp)` |
+| **V2** | `V2__edge_irrigation_schema.sql` | Edge irrigation domain schema, AWD configurations, downlink command tables |
+| **V3** | `V3__master_control_and_pairing.sql` | Master irrigation control state, node pairing request entities, and gateway tracking |
+| **V4** | `V4__seed_default_users.sql` | Default system users and roles seeding |
+| **V5** | `V5__evaluation_reference_measurements.sql` | Reference measurement schema for AWD evaluation and benchmark datasets |
+| **V6** | `V6__nullable_telemetry_monitoring_point.sql` | Make telemetry `monitoring_point_id` nullable to support direct node uplinks |
+| **V7** | `V7__seed_default_field_and_zones.sql` | Default agricultural field and 4 AWD monitoring zones seeding |
+| **V8** | `V8__telemetry_field_attribution_and_pairing_expiration.sql` | Add immutable `field_id` to telemetry readings and add `expires_at` column with indexes to node pairing requests |
+
 
 ---
 

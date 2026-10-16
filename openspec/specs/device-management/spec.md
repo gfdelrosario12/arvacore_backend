@@ -1,7 +1,7 @@
 # device-management Specification
 
 ## Purpose
-TBD - created by archiving change backend-architecture-baseline. Update Purpose after archive.
+Defines edge device lifecycle management, registration, commissioning, health tracking, and field/zone topology assignment across the ArvaCore ecosystem.
 
 ## Requirements
 ### Requirement: System SHALL register edge devices
@@ -100,4 +100,11 @@ The system SHALL expose REST endpoints under `/api/v1/devices/nodes/health` to r
 #### Scenario: Retrieve specific edge node health detail
 - **WHEN** client sends GET `/api/v1/devices/nodes/{id}/health`
 - **THEN** system returns detailed health metrics, freshness status, and communication failure history for the target node
+
+### Requirement: System SHALL support dynamic edge node field and zone reassignment
+The system SHALL provide an administrative endpoint (`PUT /api/v1/nodes/{id}/field-assignment`) permitting operators to reassign an edge node to a specific agricultural field and monitoring zone, updating relational bindings and reflecting updated field topology immediately in subsequent queries.
+
+#### Scenario: Reassign edge node to different field and zone
+- **WHEN** an authorized operator submits `PUT /api/v1/nodes/{id}/field-assignment` with target `fieldId` and `monitoringZoneId`
+- **THEN** the system updates the edge node's zone relationship, verifies field containment, and returns HTTP 200 with the node's updated field and zone descriptors
 
