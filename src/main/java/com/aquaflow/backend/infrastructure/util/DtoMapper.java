@@ -190,6 +190,24 @@ public class DtoMapper {
                 .build();
     }
 
+    public static EdgeNodeResponse toEdgeNodeResponse(EdgeNode node, java.util.List<TelemetryReading> readings) {
+        if (node == null) return null;
+        EdgeNodeResponse res = toEdgeNodeResponse(node);
+        if (readings != null && !readings.isEmpty()) {
+            for (TelemetryReading r : readings) {
+                if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.SOIL_MOISTURE && res.getSoilMoisturePercent() == null) {
+                    res.setSoilMoisturePercent(r.getValueNum());
+                } else if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.WATER_LEVEL_DISTANCE && res.getWaterLevelCm() == null) {
+                    double depth = Math.max(0.0, 30.0 - r.getValueNum());
+                    res.setWaterLevelCm(Math.round(depth * 100.0) / 100.0);
+                } else if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.BATTERY_VOLTAGE && res.getBatteryVoltage() == null) {
+                    res.setBatteryVoltage(r.getValueNum());
+                }
+            }
+        }
+        return res;
+    }
+
     public static MonitoringPointResponse toMonitoringPointResponse(MonitoringPoint point) {
         if (point == null) return null;
         return MonitoringPointResponse.builder()

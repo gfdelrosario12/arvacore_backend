@@ -46,3 +46,19 @@ The system SHALL provide REST endpoint `GET /api/v1/fields/{fieldId}/zones/{zone
 - **WHEN** client requests `GET /api/v1/fields/{fieldId}/zones/{zoneId}/trend` with valid start and end timestamps
 - **THEN** system returns time-series data points containing aggregated zone soil moisture, temperature, water level, and health status over the requested window
 
+### Requirement: System SHALL convert ultrasonic distance to pond water depth
+The system SHALL ingest physical ultrasonic distance readings (`WATER_LEVEL_DISTANCE` from JSN-SR04T sensors) and convert them to calibrated pond water depth $h$ using the sensor datum offset formula:
+$$h = \max(0.0, 30.0 - \text{distance}_{\text{cm}})$$
+The calculated depth SHALL be aggregated into `waterLevel` for the zone and reported in `ZoneResponse` and `EdgeNodeResponse` without fabricating readings when distance is invalid or out of bounds.
+
+#### Scenario: Aggregating ultrasonic pond depth
+- **WHEN** an assigned edge node transmits an ultrasonic distance measurement of 22.0 cm
+- **THEN** system converts this to a water depth of 8.0 cm and aggregates it into the zone's active water level
+
+### Requirement: Zone service SHALL fall back to monitoring zones and enrich with active node IDs
+The zone service SHALL fall back to querying the `monitoring_zones` table when the legacy `zones` table is empty, and enrich each returned `ZoneResponse` with assigned edge node IDs, live aggregate soil moisture, pond depth, battery level, and online status.
+
+#### Scenario: Querying zones when legacy table is unpopulated
+- **WHEN** client executes `GET /api/v1/zones`
+- **THEN** system queries configured `MonitoringZone` entities, attaches all assigned active edge node IDs, computes current aggregate telemetry, and returns HTTP 200
+

@@ -87,7 +87,7 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
                 .filter(n -> lifecycleState == null || n.getLifecycleState() == lifecycleState)
                 .filter(n -> healthState == null || n.getHealthState() == healthState)
                 .filter(n -> zoneId == null || (n.getMonitoringZone() != null && Objects.equals(n.getMonitoringZone().getId(), zoneId)))
-                .map(DtoMapper::toEdgeNodeResponse)
+                .map(n -> DtoMapper.toEdgeNodeResponse(n, telemetryReadingRepository.findByEdgeNodeIdOrderByTimestampDesc(n.getId())))
                 .collect(Collectors.toList());
     }
 
@@ -107,7 +107,7 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
     @Transactional(readOnly = true)
     public EdgeNodeResponse getNodeById(Long id) {
         EdgeNode node = findNodeOrThrow(id);
-        return DtoMapper.toEdgeNodeResponse(node);
+        return DtoMapper.toEdgeNodeResponse(node, telemetryReadingRepository.findByEdgeNodeIdOrderByTimestampDesc(node.getId()));
     }
 
     @Override

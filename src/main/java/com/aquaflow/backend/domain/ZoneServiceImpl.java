@@ -5,11 +5,13 @@ import com.aquaflow.backend.dto.request.UpdateCropStageRequest;
 import com.aquaflow.backend.dto.request.ZoneRequest;
 import com.aquaflow.backend.dto.response.MonitoringZoneResponse;
 import com.aquaflow.backend.dto.response.ZoneResponse;
+import com.aquaflow.backend.entity.EdgeNode;
 import com.aquaflow.backend.entity.MonitoringZone;
 import com.aquaflow.backend.entity.Zone;
 import com.aquaflow.backend.infrastructure.exception.ResourceNotFoundException;
 import com.aquaflow.backend.infrastructure.exception.ValidationException;
 import com.aquaflow.backend.infrastructure.util.DtoMapper;
+import com.aquaflow.backend.persistence.EdgeNodeRepository;
 import com.aquaflow.backend.persistence.MonitoringZoneRepository;
 import com.aquaflow.backend.persistence.ZoneRepository;
 import org.slf4j.Logger;
@@ -19,6 +21,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -30,10 +34,22 @@ public class ZoneServiceImpl implements ZoneService {
 
     private final ZoneRepository zoneRepository;
     private final MonitoringZoneRepository monitoringZoneRepository;
+    private final EdgeNodeRepository edgeNodeRepository;
+    private final ZoneAggregationService zoneAggregationService;
 
-    public ZoneServiceImpl(ZoneRepository zoneRepository, MonitoringZoneRepository monitoringZoneRepository) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public ZoneServiceImpl(ZoneRepository zoneRepository,
+                           MonitoringZoneRepository monitoringZoneRepository,
+                           @org.springframework.beans.factory.annotation.Autowired(required = false) EdgeNodeRepository edgeNodeRepository,
+                           @org.springframework.beans.factory.annotation.Autowired(required = false) ZoneAggregationService zoneAggregationService) {
         this.zoneRepository = zoneRepository;
         this.monitoringZoneRepository = monitoringZoneRepository;
+        this.edgeNodeRepository = edgeNodeRepository;
+        this.zoneAggregationService = zoneAggregationService;
+    }
+
+    public ZoneServiceImpl(ZoneRepository zoneRepository, MonitoringZoneRepository monitoringZoneRepository) {
+        this(zoneRepository, monitoringZoneRepository, null, null);
     }
 
     @Override
@@ -59,9 +75,14 @@ public class ZoneServiceImpl implements ZoneService {
     @Override
     @Transactional(readOnly = true)
     public ZoneResponse getZoneById(Long id) {
-        Zone zone = zoneRepository.findById(id)
+        java.util.Optional<Zone> zoneOpt = zoneRepository.findById(id);
+        if (zoneOpt.isPresent()) {
+            return DtoMapper.toZoneResponse(zoneOpt.get());
+        }
+
+        MonitoringZone mz = monitoringZoneRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Zone not found with id: " + id));
-        return DtoMapper.toZoneResponse(zone);
+        return toAwdZoneResponse(mz);
     }
 
     @Override
@@ -75,14 +96,91 @@ public class ZoneServiceImpl implements ZoneService {
     @Override
     @Transactional(readOnly = true)
     public Page<ZoneResponse> getAllZones(Pageable pageable) {
-        return zoneRepository.findAll(pageable).map(DtoMapper::toZoneResponse);
+        if (zoneRepository.count() > 0) {
+            return zoneRepository.findAll(pageable).map(DtoMapper::toZoneResponse);
+        }
+        List<ZoneResponse> awdZones = monitoringZoneRepository.findAll().stream()
+                .map(this::toAwdZoneResponse)
+                .collect(Collectors.toList());
+        int start = (int) pageable.getOffset();
+        int end = Math.min((start + pageable.getPageSize()), awdZones.size());
+        if (start > awdZones.size()) {
+            return new org.springframework.data.domain.PageImpl<>(Collections.emptyList(), pageable, awdZones.size());
+        }
+        return new org.springframework.data.domain.PageImpl<>(awdZones.subList(start, end), pageable, awdZones.size());
     }
 
     @Override
     public List<ZoneResponse> getAllZones() {
-        return zoneRepository.findAll().stream()
-                .map(DtoMapper::toZoneResponse)
+        if (zoneRepository.count() > 0) {
+            return zoneRepository.findAll().stream()
+                    .map(DtoMapper::toZoneResponse)
+                    .collect(Collectors.toList());
+        }
+        return monitoringZoneRepository.findAll().stream()
+                .map(this::toAwdZoneResponse)
                 .collect(Collectors.toList());
+    }
+
+    private ZoneResponse toAwdZoneResponse(MonitoringZone mz) {
+        List<EdgeNode> nodes = edgeNodeRepository != null
+                ? edgeNodeRepository.findByMonitoringZoneId(mz.getId())
+                : Collections.emptyList();
+        List<String> nodeIds = new ArrayList<>();
+        Integer battery = null;
+        for (EdgeNode n : nodes) {
+            if (n.getNodeId() != null) nodeIds.add(n.getNodeId());
+            nodeIds.add(String.valueOf(n.getId()));
+            if (battery == null && n.getHealthMetrics() != null && n.getHealthMetrics().getBatteryLevel() != null) {
+                battery = n.getHealthMetrics().getBatteryLevel().intValue();
+            }
+        }
+
+        Double avgMoisture = null;
+        Double waterLevel = null;
+        String status = "OPTIMAL";
+        Boolean isOnline = !nodes.isEmpty();
+
+        if (zoneAggregationService != null) {
+            try {
+                com.aquaflow.backend.dto.response.ZoneTelemetryResponse telemetry =
+                        zoneAggregationService.getLatestZoneTelemetry(mz.getId());
+                if (telemetry != null) {
+                    avgMoisture = telemetry.getAvgSoilMoisture();
+                    waterLevel = telemetry.getWaterLevel();
+                    if (telemetry.getHealthStatus() != null) {
+                        status = telemetry.getHealthStatus().name();
+                    }
+                    if (telemetry.getOnlineNodes() != null) {
+                        isOnline = telemetry.getOnlineNodes() > 0;
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        String name = mz.getName() != null ? mz.getName() : "Zone " + mz.getId();
+        String code = "Q" + mz.getId();
+        if (name.contains("Q")) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("Q[0-9]+").matcher(name);
+            if (m.find()) code = m.group();
+        }
+
+        return ZoneResponse.builder()
+                .id(mz.getId())
+                .name(name)
+                .code(code)
+                .fieldId(mz.getField() != null ? mz.getField().getId() : null)
+                .cropType(mz.getCropType())
+                .waterAllocationLimit(mz.getWaterAllocationLimitLiters())
+                .soilMoisturePercent(avgMoisture != null ? avgMoisture : mz.getTargetMoisturePercentage())
+                .waterLevelCm(waterLevel != null ? waterLevel : 0.0)
+                .assignedNodeIds(nodeIds)
+                .status(status)
+                .batteryPercent(battery != null ? battery : 95)
+                .isOnline(isOnline)
+                .createdAt(mz.getCreatedAt())
+                .updatedAt(mz.getUpdatedAt())
+                .build();
     }
 
     @Override

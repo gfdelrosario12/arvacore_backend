@@ -8,26 +8,39 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.Map;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class TelemetryUplinkRequest {
 
     private String nodeId;
     private String devEui;
     private Long fCnt;
     private Integer fPort;
+    private Long seq;
     private String format; // "CHIRPSTACK", "TTN", "JSON"
     private Object payload; // Raw JSON or base64/hex payload string
     private LocalDateTime timestamp;
     private Double batteryLevel;
+    private Double batteryVoltage;
+    private Double soilMoisturePercent;
     private Double solarVoltage;
     private Integer rssiDbm;
     private Double snrDb;
     private String gatewayId;
     private Double frequency;
     private Map<String, Double> measurements;
+
+    public Long getSeq() { return seq; }
+    public void setSeq(Long seq) { this.seq = seq; }
+    public Double getBatteryVoltage() { return batteryVoltage; }
+    public void setBatteryVoltage(Double batteryVoltage) { this.batteryVoltage = batteryVoltage; }
+    public Double getSoilMoisturePercent() { return soilMoisturePercent; }
+    public void setSoilMoisturePercent(Double soilMoisturePercent) { this.soilMoisturePercent = soilMoisturePercent; }
 
     public String getNodeId() { return nodeId; }
     public void setNodeId(String nodeId) { this.nodeId = nodeId; }
