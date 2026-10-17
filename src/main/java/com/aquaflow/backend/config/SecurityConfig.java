@@ -89,6 +89,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/chirpstack/webhook/**", "/api/v1/lora/webhook/**").hasAnyRole("EDGE_NODE", "OPERATOR", "ADMIN")
                         .requestMatchers("/api/v1/audit/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/irrigation/emergency-stop", "/api/v1/irrigation/manual/**").hasAnyRole("ADMIN", "OPERATOR")
+                        .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/v1/nodes/*/pairing").hasAnyRole("ADMIN", "OPERATOR")
                         .requestMatchers("/api/v1/nodes/*/commission", "/api/v1/nodes/*/decommission", "/api/v1/nodes/*/replace").hasRole("ADMIN")
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers("/actuator/prometheus", "/actuator/metrics").hasRole("ADMIN")

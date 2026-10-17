@@ -12,15 +12,30 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.security.core.Authentication;
+
 import java.net.URI;
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/nodes")
-@RequiredArgsConstructor
 public class EdgeNodeRegistryController {
 
     private final EdgeNodeRegistryService edgeNodeRegistryService;
+    private final com.aquaflow.backend.domain.NodePairingService nodePairingService;
+
+    public EdgeNodeRegistryController(EdgeNodeRegistryService edgeNodeRegistryService) {
+        this(edgeNodeRegistryService, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public EdgeNodeRegistryController(
+            EdgeNodeRegistryService edgeNodeRegistryService,
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+            com.aquaflow.backend.domain.NodePairingService nodePairingService) {
+        this.edgeNodeRegistryService = edgeNodeRegistryService;
+        this.nodePairingService = nodePairingService;
+    }
 
     @PostMapping
     public ResponseEntity<EdgeNodeResponse> registerNode(@Valid @RequestBody RegisterNodeRequest request) {
@@ -63,6 +78,15 @@ public class EdgeNodeRegistryController {
     @PostMapping("/{id}/decommission")
     public ResponseEntity<EdgeNodeResponse> decommissionNode(@PathVariable Long id) {
         return ResponseEntity.ok(edgeNodeRegistryService.decommissionNode(id));
+    }
+
+    @DeleteMapping("/{nodeId}/pairing")
+    public ResponseEntity<com.aquaflow.backend.dto.response.NodeUnpairResponse> unpairNode(
+            @PathVariable String nodeId,
+            Authentication authentication) {
+        String actor = (authentication != null && authentication.getName() != null)
+                ? authentication.getName() : "ADMIN";
+        return ResponseEntity.ok(nodePairingService.unpairNode(nodeId, actor));
     }
 
     @PostMapping("/{id}/replace")

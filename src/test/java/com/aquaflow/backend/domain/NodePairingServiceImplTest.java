@@ -286,4 +286,127 @@ class NodePairingServiceImplTest {
         assertEquals(originalExpiresAt, activePending.getExpiresAt());
         assertFalse(response.isExpired());
     }
+
+    @Test
+    @DisplayName("unpairNode: successfully unpairs node, transitions to UNREGISTERED, and revokes pairing")
+    void testUnpairNode_Success() {
+        EdgeNode node = EdgeNode.builder()
+                .id(100L)
+                .nodeId("NODE-UNPAIR")
+                .lifecycleState(NodeLifecycleState.ACTIVE)
+                .build();
+
+        NodePairingRequest approvedReq = NodePairingRequest.builder()
+                .id(100L)
+                .nodeId("NODE-UNPAIR")
+                .pairingStatus(PairingStatus.APPROVED)
+                .requestedAt(LocalDateTime.now().minusDays(5))
+                .expiresAt(LocalDateTime.now().minusDays(5).plusMinutes(30))
+                .build();
+
+        when(edgeNodeRepository.findByNodeId("NODE-UNPAIR")).thenReturn(Optional.of(node));
+        when(pairingRequestRepository.findAll()).thenReturn(List.of(approvedReq));
+        when(pairingRequestRepository.save(any(NodePairingRequest.class))).thenAnswer(i -> i.getArgument(0));
+        when(edgeNodeRepository.save(any(EdgeNode.class))).thenAnswer(i -> i.getArgument(0));
+
+        com.aquaflow.backend.dto.response.NodeUnpairResponse response =
+                nodePairingService.unpairNode("NODE-UNPAIR", "Gladwin");
+
+        assertNotNull(response);
+        assertEquals("NODE-UNPAIR", response.getNodeId());
+        assertTrue(response.isUnpaired());
+        assertEquals(NodeLifecycleState.UNREGISTERED, node.getLifecycleState());
+        assertEquals(PairingStatus.REVOKED, approvedReq.getPairingStatus());
+        verify(auditLogRepository).save(any(SystemAuditLog.class));
+        verify(systemEventPublisher).publishPairingRequestUpdated("NODE-UNPAIR", "REVOKED");
+    }
+
+    @Test
+    @DisplayName("unpairNode: is safely repeatable for unknown or already uncommissioned node")
+    void testUnpairNode_SafelyRepeatable() {
+        when(edgeNodeRepository.findByNodeId("NODE-UNKNOWN")).thenReturn(Optional.empty());
+        when(pairingRequestRepository.findAll()).thenReturn(Collections.emptyList());
+        when(pairingRequestRepository.save(any(NodePairingRequest.class))).thenAnswer(i -> i.getArgument(0));
+
+        com.aquaflow.backend.dto.response.NodeUnpairResponse response =
+                nodePairingService.unpairNode("NODE-UNKNOWN", "admin");
+
+        assertNotNull(response);
+        assertEquals("NODE-UNKNOWN", response.getNodeId());
+        assertTrue(response.isUnpaired());
+    }
+
+    @Test
+    @DisplayName("approveAndAssignNode: throws ValidationException when pairing request is REVOKED")
+    void testApproveAndAssignNode_RevokedRequest_ThrowsValidationException() {
+        NodePairingRequest revokedReq = NodePairingRequest.builder()
+                .id(555L)
+                .nodeId("NODE-REVOKED")
+                .pairingStatus(PairingStatus.REVOKED)
+                .requestedAt(LocalDateTime.now().minusMinutes(5))
+                .expiresAt(LocalDateTime.now().plusMinutes(25))
+                .build();
+
+        when(pairingRequestRepository.findById(555L)).thenReturn(Optional.of(revokedReq));
+
+        RegisterNodeRequest registerReq = RegisterNodeRequest.builder()
+                .nodeId("NODE-REVOKED")
+                .build();
+
+        com.aquaflow.backend.infrastructure.exception.ValidationException ex = assertThrows(
+                com.aquaflow.backend.infrastructure.exception.ValidationException.class,
+                () -> nodePairingService.approveAndAssignNode(555L, registerReq, "ADMIN")
+        );
+
+        assertTrue(ex.getMessage().contains("PAIRING_EXPIRED"));
+    }
+
+    @Test
+    @DisplayName("getPairingStatusByNodeId: returns REVOKED for UNREGISTERED node")
+    void testGetPairingStatusByNodeId_UnregisteredNode_ReturnsRevoked() {
+        EdgeNode node = EdgeNode.builder()
+                .id(200L)
+                .nodeId("NODE-REVOKED-1")
+                .lifecycleState(NodeLifecycleState.UNREGISTERED)
+                .build();
+
+        when(edgeNodeRepository.findByNodeId("NODE-REVOKED-1")).thenReturn(Optional.of(node));
+        when(pairingRequestRepository.findFirstByNodeIdOrderByRequestedAtDesc("NODE-REVOKED-1")).thenReturn(Optional.empty());
+
+        PairingRequestResponse response = nodePairingService.getPairingStatusByNodeId("NODE-REVOKED-1");
+
+        assertNotNull(response);
+        assertEquals("NODE-REVOKED-1", response.getNodeId());
+        assertEquals(PairingStatus.REVOKED, response.getPairingStatus());
+        assertFalse(response.isRecognized());
+    }
+
+    @Test
+    @DisplayName("Accepted paired nodes never expire automatically beyond 30 minutes")
+    void testAcceptedPairing_NeverExpiresAutomatically() {
+        EdgeNode node = EdgeNode.builder()
+                .id(300L)
+                .nodeId("NODE-PERMANENT")
+                .lifecycleState(NodeLifecycleState.ACTIVE)
+                .build();
+
+        // Node was approved 30 days ago
+        NodePairingRequest oldApprovedReq = NodePairingRequest.builder()
+                .id(300L)
+                .nodeId("NODE-PERMANENT")
+                .pairingStatus(PairingStatus.APPROVED)
+                .requestedAt(LocalDateTime.now().minusDays(30))
+                .expiresAt(LocalDateTime.now().minusDays(30).plusMinutes(30))
+                .build();
+
+        when(edgeNodeRepository.findByNodeId("NODE-PERMANENT")).thenReturn(Optional.of(node));
+        when(pairingRequestRepository.findFirstByNodeIdOrderByRequestedAtDesc("NODE-PERMANENT"))
+                .thenReturn(Optional.of(oldApprovedReq));
+
+        PairingRequestResponse response = nodePairingService.getPairingStatusByNodeId("NODE-PERMANENT");
+
+        assertNotNull(response);
+        assertEquals(PairingStatus.APPROVED, response.getPairingStatus());
+        assertFalse(response.isExpired());
+    }
 }

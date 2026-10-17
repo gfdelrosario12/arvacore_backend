@@ -310,6 +310,7 @@ All REST endpoints are prefixed with `/api/v1/`.
 | `POST` | `/api/v1/nodes` | Register a new ESP32 edge node device | `ROLE_OPERATOR`+ |
 | `PUT` | `/api/v1/nodes/{id}` | Update node configuration or zone association | `ROLE_OPERATOR`+ |
 | `PUT` | `/api/v1/nodes/{id}/field-assignment` | Dynamically reassign node to field and monitoring zone | `ROLE_OPERATOR`+ |
+| `DELETE` | `/api/v1/nodes/{id}/pairing` | Forcefully unpair registered node, revoking authorization & clearing cached state | `ROLE_OPERATOR`+ |
 | `GET` | `/api/v1/nodes/{id}/health` | Retrieve current health state (`HEALTHY`, `DEGRADED`, `CRITICAL`) | `ROLE_VIEWER`+ |
 
 ### Node Pairing & Gateway Discovery (`/api/v1/pairing`)
@@ -318,8 +319,15 @@ All REST endpoints are prefixed with `/api/v1/`.
 | :--- | :--- | :--- | :---:|
 | `GET` | `/api/v1/pairing/requests` | List discovered node pairing requests (with 30m expiration) | `ROLE_OPERATOR`+ |
 | `POST` | `/api/v1/pairing/request` | Submit physical node pairing request from gateway / node | Public / Gateway |
-| `POST` | `/api/v1/pairing/approve/{nodeId}` | Approve pairing request and assign field and monitoring zone | `ROLE_OPERATOR`+ |
-| `GET` | `/api/v1/pairing/status/{nodeId}` | Query pairing status for node hardware (checks expiration) | Public / Gateway |
+| `POST` | `/api/v1/pairing/approve/{nodeId}` | Approve pairing request and assign field and monitoring zone (permanent pairing) | `ROLE_OPERATOR`+ |
+| `GET` | `/api/v1/pairing/status/{nodeId}` | Query pairing status for node hardware (checks 30m expiration, returns REVOKED on unpair) | Public / Gateway |
+
+> [!NOTE]
+> **Node Pairing Lifecycle Guarantees**:
+> - **Permanent Accepted Pairings**: Once approved, pairings remain active indefinitely across service restarts and network reconnects until explicitly unpaired by an authorized operator or administrator.
+> - **30-Minute Pending Expiration**: Unapproved pairing requests expire exactly 30 minutes after initial discovery and cannot be approved post-expiration.
+> - **Forceful Revocation**: Invoking `DELETE /api/v1/nodes/{nodeId}/pairing` transitions the node to `UNREGISTERED` / `REVOKED`, disassociates field/zone monitoring points, purges ingestion caches, and broadcasts real-time eviction events to connected dashboards.
+
 
 
 ### Telemetry & Zone Aggregates (`/api/v1/telemetry`)

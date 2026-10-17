@@ -372,5 +372,13 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
 
         edgeNodeRepository.save(node);
     }
+
+    @Override
+    public void clearNodeCache(String nodeId) {
+        if (nodeId != null) {
+            lastSeenFrameCounters.remove(nodeId);
+            log.debug("Cleared telemetry frame counter cache for node: {}", nodeId);
+        }
+    }
 }
 

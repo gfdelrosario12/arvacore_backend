@@ -50,6 +50,10 @@ public class NodePairingServiceImpl implements NodePairingService {
     @Autowired(required = false)
     private MonitoringPointRepository monitoringPointRepository;
 
+    @Autowired(required = false)
+    @org.springframework.context.annotation.Lazy
+    private TelemetryIngestionService telemetryIngestionService;
+
     // -------------------------------------------------------------
     // Master State Management
     // -------------------------------------------------------------
@@ -258,10 +262,28 @@ public class NodePairingServiceImpl implements NodePairingService {
     public PairingRequestResponse getPairingStatusByNodeId(String nodeId) {
         String cleanNodeId = (nodeId != null) ? nodeId.trim() : "";
         Optional<EdgeNode> existingNode = edgeNodeRepository.findByNodeId(cleanNodeId);
+        Optional<NodePairingRequest> latestReq = pairingRequestRepository
+                .findFirstByNodeIdOrderByRequestedAtDesc(cleanNodeId);
+
         if (existingNode.isPresent()) {
             EdgeNode node = existingNode.get();
-            Optional<NodePairingRequest> latestReq = pairingRequestRepository
-                    .findFirstByNodeIdOrderByRequestedAtDesc(cleanNodeId);
+            // If the node lifecycle is UNREGISTERED, return REVOKED status
+            if (node.getLifecycleState() == NodeLifecycleState.UNREGISTERED) {
+                if (latestReq.isPresent()) {
+                    return toPairingResponse(latestReq.get());
+                }
+                return PairingRequestResponse.builder()
+                        .nodeId(cleanNodeId)
+                        .hardwareModel(node.getHardwareModel())
+                        .firmwareVersion(node.getFirmwareVersion())
+                        .macAddress(node.getIdentity() != null ? node.getIdentity().getMacAddress() : null)
+                        .pairingStatus(PairingStatus.REVOKED)
+                        .recognized(false)
+                        .existingEdgeNodeId(node.getId())
+                        .existingLifecycleState(node.getLifecycleState() != null ? node.getLifecycleState().name() : null)
+                        .build();
+            }
+
             if (latestReq.isPresent()) {
                 return toPairingResponse(latestReq.get());
             }
@@ -279,8 +301,6 @@ public class NodePairingServiceImpl implements NodePairingService {
                     .build();
         }
 
-        Optional<NodePairingRequest> latestReq = pairingRequestRepository
-                .findFirstByNodeIdOrderByRequestedAtDesc(cleanNodeId);
         if (latestReq.isPresent()) {
             return toPairingResponse(latestReq.get());
         }
@@ -329,12 +349,13 @@ public class NodePairingServiceImpl implements NodePairingService {
         NodePairingRequest pairingReq = pairingRequestRepository.findById(pairingRequestId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pairing request not found: " + pairingRequestId));
 
-        if (pairingReq.isExpired()) {
-            pairingReq.setPairingStatus(PairingStatus.EXPIRED);
+        if (pairingReq.isExpired() || pairingReq.getPairingStatus() == PairingStatus.REVOKED) {
+            PairingStatus finalStatus = pairingReq.getPairingStatus() == PairingStatus.REVOKED ? PairingStatus.REVOKED : PairingStatus.EXPIRED;
+            pairingReq.setPairingStatus(finalStatus);
             pairingReq.setProcessedAt(LocalDateTime.now());
-            pairingReq.setProcessedBy("SYSTEM_EXPIRATION");
+            pairingReq.setProcessedBy(finalStatus == PairingStatus.REVOKED ? (actor != null ? actor : "ADMIN") : "SYSTEM_EXPIRATION");
             pairingRequestRepository.save(pairingReq);
-            throw new ValidationException("PAIRING_EXPIRED: Pairing request has expired (30-minute window exceeded). A new pairing request must be initiated from the node.");
+            throw new ValidationException("PAIRING_EXPIRED: Pairing request has expired or has been revoked. A new pairing request must be initiated from the node.");
         }
 
         // Ensure pairing request is pending or can be re-approved idempotently
@@ -429,6 +450,117 @@ public class NodePairingServiceImpl implements NodePairingService {
         }
 
         return edgeNodeRegistryService.getNodeById(nodeResponse.getId());
+    }
+
+    @Override
+    public NodeUnpairResponse unpairNode(String nodeId, String actor) {
+        String cleanNodeId = (nodeId != null) ? nodeId.trim() : "";
+        if (cleanNodeId.isBlank()) {
+            throw new ValidationException("Node ID cannot be null or empty");
+        }
+
+        String effectiveActor = (actor != null && !actor.isBlank()) ? actor : "ADMIN";
+        LocalDateTime now = LocalDateTime.now();
+        String previousState = "UNREGISTERED";
+        Long fieldId = null;
+
+        // 1. Check and revoke EdgeNode if present in registry
+        Optional<EdgeNode> nodeOpt = edgeNodeRepository.findByNodeId(cleanNodeId);
+        if (nodeOpt.isPresent()) {
+            EdgeNode node = nodeOpt.get();
+            previousState = node.getLifecycleState() != null ? node.getLifecycleState().name() : "ACTIVE";
+            if (node.getMonitoringZone() != null && node.getMonitoringZone().getField() != null) {
+                fieldId = node.getMonitoringZone().getField().getId();
+            }
+
+            node.setLifecycleState(NodeLifecycleState.UNREGISTERED);
+
+            // Disassociate from any monitoring points
+            if (monitoringPointRepository != null) {
+                try {
+                    List<MonitoringPoint> points = monitoringPointRepository.findByEdgeNodeId(node.getId());
+                    if (points != null && !points.isEmpty()) {
+                        points.forEach(p -> p.setEdgeNode(null));
+                        monitoringPointRepository.saveAll(points);
+                        log.info("Disassociated {} monitoring point(s) from unpaired node {}", points.size(), cleanNodeId);
+                    }
+                } catch (Exception e) {
+                    log.warn("Error disassociating monitoring points for node {}: {}", cleanNodeId, e.getMessage());
+                }
+            }
+
+            node.setMonitoringZone(null);
+            edgeNodeRepository.save(node);
+            log.info("Transitioned EdgeNode {} lifecycleState to UNREGISTERED", cleanNodeId);
+        }
+
+        // 2. Revoke all pairing requests for this node (both PENDING and historical APPROVED)
+        List<NodePairingRequest> nodeRequests = pairingRequestRepository.findAll()
+                .stream()
+                .filter(r -> cleanNodeId.equalsIgnoreCase(r.getNodeId()))
+                .toList();
+
+        for (NodePairingRequest req : nodeRequests) {
+            req.setPairingStatus(PairingStatus.REVOKED);
+            req.setRejectionReason("Node forcefully unpaired and revoked by " + effectiveActor);
+            req.setProcessedAt(now);
+            req.setProcessedBy(effectiveActor);
+            pairingRequestRepository.save(req);
+        }
+
+        // If no prior pairing record existed, create an explicit REVOKED record
+        if (nodeRequests.isEmpty()) {
+            NodePairingRequest revokedRecord = NodePairingRequest.builder()
+                    .nodeId(cleanNodeId)
+                    .pairingStatus(PairingStatus.REVOKED)
+                    .rejectionReason("Node forcefully unpaired and revoked by " + effectiveActor)
+                    .requestedAt(now)
+                    .expiresAt(now)
+                    .processedAt(now)
+                    .processedBy(effectiveActor)
+                    .build();
+            pairingRequestRepository.save(revokedRecord);
+        }
+
+        // 3. Clear cached telemetry frame counter or runtime authorization
+        if (telemetryIngestionService != null) {
+            try {
+                telemetryIngestionService.clearNodeCache(cleanNodeId);
+            } catch (Exception e) {
+                log.warn("Failed to clear telemetry frame counter cache for node {}: {}", cleanNodeId, e.getMessage());
+            }
+        }
+
+        // 4. Audit Log
+        auditLogRepository.save(SystemAuditLog.builder()
+                .eventType("NODE_UNPAIRED")
+                .actor(effectiveActor)
+                .entityType("EdgeNode")
+                .entityId(cleanNodeId)
+                .previousState(previousState)
+                .resultingState("REVOKED")
+                .payloadJson(String.format("{\"nodeId\":\"%s\",\"action\":\"FORCEFUL_UNPAIR\",\"revokedBy\":\"%s\"}",
+                        cleanNodeId, effectiveActor))
+                .createdAt(now)
+                .build());
+
+        // 5. Broadcast real-time events to all connected clients
+        try {
+            systemEventPublisher.publishPairingRequestUpdated(cleanNodeId, "REVOKED");
+            systemEventPublisher.publishNodeStatusChanged(cleanNodeId, fieldId, previousState, "UNREGISTERED");
+        } catch (Exception e) {
+            log.warn("Failed to broadcast unpair event for node {}: {}", cleanNodeId, e.getMessage());
+        }
+
+        log.info("Forceful unpairing completed for node {} by {}", cleanNodeId, effectiveActor);
+
+        return NodeUnpairResponse.builder()
+                .nodeId(cleanNodeId)
+                .unpaired(true)
+                .previousStatus(previousState)
+                .revokedAt(now)
+                .message(String.format("Node %s has been successfully unpaired. Pairing authorization has been revoked.", cleanNodeId))
+                .build();
     }
 
     private PairingRequestResponse toPairingResponse(NodePairingRequest req) {

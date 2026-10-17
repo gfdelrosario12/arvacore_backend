@@ -12,5 +12,7 @@ public interface TelemetryIngestionService {
     TelemetryUplinkResponse ingestUplinkForNode(String nodeId, TelemetryUplinkRequest request);
 
     TelemetryBatchUplinkResponse ingestBatchUplink(TelemetryBatchUplinkRequest request);
+    
+    void clearNodeCache(String nodeId);
 }
 

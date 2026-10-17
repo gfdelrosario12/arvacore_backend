@@ -4,6 +4,7 @@ public enum PairingStatus {
     PENDING,
     APPROVED,
     REJECTED,
-    EXPIRED
+    EXPIRED,
+    REVOKED
 }
 

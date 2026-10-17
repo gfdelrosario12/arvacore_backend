@@ -26,6 +26,7 @@ public interface NodePairingService {
     PairingRequestResponse getPairingStatusByNodeId(String nodeId);
     PairingRequestResponse rejectPairingRequest(Long id, PairingRejectionRequest request, String actor);
     EdgeNodeResponse approveAndAssignNode(Long pairingRequestId, RegisterNodeRequest request, String actor);
+    com.aquaflow.backend.dto.response.NodeUnpairResponse unpairNode(String nodeId, String actor);
 
     // Core & Node System Overview Health
     CoreHealthResponse getCoreHealth();
