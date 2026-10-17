@@ -45,7 +45,7 @@ public class PerformanceEvaluationIntegrationTest {
                 .apply(springSecurity())
                 .build();
 
-        this.adminToken = loginAndGetToken("admin", "admin_pass");
+        this.adminToken = loginAndGetToken("admin", "password123");
         this.operatorToken = loginAndGetToken("Pranz", "password123");
     }
 

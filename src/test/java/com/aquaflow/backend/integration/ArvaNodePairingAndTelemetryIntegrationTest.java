@@ -64,7 +64,7 @@ public class ArvaNodePairingAndTelemetryIntegrationTest {
         // Login as admin
         LoginRequest loginReq = new LoginRequest();
         loginReq.setUsername("admin");
-        loginReq.setPassword("admin_pass");
+        loginReq.setPassword("password123");
 
         MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
