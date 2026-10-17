@@ -6,6 +6,8 @@ public interface SystemEventPublisher {
 
     void publishTelemetryReceived(String nodeId, Long fieldId, int readingsIngested);
 
+    void publishTelemetryStreamEvent(com.aquaflow.backend.entity.TelemetryStreamEvent event);
+
     void publishNodeStatusChanged(String nodeId, Long fieldId, String oldState, String newState);
 
     void publishAlarm(String aggregateId, Long fieldId, String alarmType, String severity, String message);

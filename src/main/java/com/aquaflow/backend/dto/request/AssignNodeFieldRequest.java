@@ -14,7 +14,6 @@ public class AssignNodeFieldRequest {
 
     private Long fieldId;
 
-    @NotNull(message = "Monitoring zone ID is required")
     private Long monitoringZoneId;
 }
 

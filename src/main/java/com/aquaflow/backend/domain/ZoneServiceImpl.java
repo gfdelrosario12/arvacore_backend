@@ -173,7 +173,7 @@ public class ZoneServiceImpl implements ZoneService {
                 .cropType(mz.getCropType())
                 .waterAllocationLimit(mz.getWaterAllocationLimitLiters())
                 .soilMoisturePercent(avgMoisture != null ? avgMoisture : mz.getTargetMoisturePercentage())
-                .waterLevelCm(waterLevel != null ? waterLevel : 0.0)
+                .waterLevelCm(waterLevel)
                 .assignedNodeIds(nodeIds)
                 .status(status)
                 .batteryPercent(battery != null ? battery : 95)

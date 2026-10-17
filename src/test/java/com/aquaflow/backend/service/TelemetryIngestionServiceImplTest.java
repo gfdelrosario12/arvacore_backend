@@ -51,6 +51,9 @@ class TelemetryIngestionServiceImplTest {
     @Mock
     private com.aquaflow.backend.domain.NodePairingService nodePairingService;
 
+    @Mock
+    private com.aquaflow.backend.domain.TelemetryStreamService telemetryStreamService;
+
     private TelemetryIngestionServiceImpl service;
 
     @BeforeEach
@@ -64,7 +67,9 @@ class TelemetryIngestionServiceImplTest {
                 edgeNodeRegistryService,
                 payloadDecoderRegistry,
                 systemEventPublisher,
-                nodePairingService
+                nodePairingService,
+                telemetryStreamService,
+                new com.fasterxml.jackson.databind.ObjectMapper()
         );
     }
 

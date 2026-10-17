@@ -18,7 +18,7 @@ public class FlywayMigrationTest {
                 .load();
 
         int applied = flyway.migrate().migrationsExecuted;
-        assertEquals(8, applied);
+        assertEquals(10, applied);
     }
 }
 

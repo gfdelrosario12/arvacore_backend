@@ -75,17 +75,18 @@ class CustomUserDetailsServiceTest {
     @DisplayName("loadUserByUsername successfully constructs UserDetails with normalized authorities for ROLE_ADMIN")
     void shouldLoadUserByUsernameWithPrefixedRole() {
         User user = User.builder()
-                .username("gladwin")
+                .username("Gladwin")
                 .password("encoded_pass")
                 .role("ROLE_ADMIN")
                 .enabled(true)
                 .build();
 
-        when(userRepository.findByUsername("gladwin")).thenReturn(Optional.of(user));
+        when(userRepository.findByUsernameIgnoreCaseOrEmailIgnoreCase("gladwin", "gladwin"))
+                .thenReturn(Optional.of(user));
 
         UserDetails userDetails = service.loadUserByUsername("gladwin");
 
-        assertThat(userDetails.getUsername()).isEqualTo("gladwin");
+        assertThat(userDetails.getUsername()).isEqualTo("Gladwin");
         assertThat(userDetails.getPassword()).isEqualTo("encoded_pass");
         assertThat(userDetails.isEnabled()).isTrue();
         assertThat(userDetails.getAuthorities())
@@ -97,25 +98,69 @@ class CustomUserDetailsServiceTest {
     @DisplayName("loadUserByUsername successfully constructs UserDetails with normalized authorities for unprefixed ADMIN")
     void shouldLoadUserByUsernameWithUnprefixedRole() {
         User user = User.builder()
-                .username("pranz")
+                .username("Pranz")
                 .password("encoded_pass")
-                .role("ADMIN")
+                .role("OPERATOR")
                 .enabled(true)
                 .build();
 
-        when(userRepository.findByUsername("pranz")).thenReturn(Optional.of(user));
+        when(userRepository.findByUsernameIgnoreCaseOrEmailIgnoreCase("pranz", "pranz"))
+                .thenReturn(Optional.of(user));
 
         UserDetails userDetails = service.loadUserByUsername("pranz");
 
         assertThat(userDetails.getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
-                .containsExactly("ROLE_ADMIN");
+                .containsExactly("ROLE_OPERATOR");
+    }
+
+    @Test
+    @DisplayName("loadUserByUsername resolves alias farmer_m to MrFarmer")
+    void shouldResolveFarmerMAlias() {
+        User user = User.builder()
+                .username("MrFarmer")
+                .password("encoded_pass")
+                .role("ROLE_USER")
+                .enabled(true)
+                .build();
+
+        when(userRepository.findByUsernameIgnoreCaseOrEmailIgnoreCase("MrFarmer", "mr.farmer@aquaflow.io"))
+                .thenReturn(Optional.of(user));
+
+        UserDetails userDetails = service.loadUserByUsername("farmer_m");
+
+        assertThat(userDetails.getUsername()).isEqualTo("MrFarmer");
+        assertThat(userDetails.getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .containsExactly("ROLE_USER");
+    }
+
+    @Test
+    @DisplayName("loadUserByUsername resolves alias farmer_f to MsFarmer")
+    void shouldResolveFarmerFAlias() {
+        User user = User.builder()
+                .username("MsFarmer")
+                .password("encoded_pass")
+                .role("ROLE_USER")
+                .enabled(true)
+                .build();
+
+        when(userRepository.findByUsernameIgnoreCaseOrEmailIgnoreCase("MsFarmer", "ms.farmer@aquaflow.io"))
+                .thenReturn(Optional.of(user));
+
+        UserDetails userDetails = service.loadUserByUsername("farmer_f");
+
+        assertThat(userDetails.getUsername()).isEqualTo("MsFarmer");
+        assertThat(userDetails.getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .containsExactly("ROLE_USER");
     }
 
     @Test
     @DisplayName("loadUserByUsername throws UsernameNotFoundException when user does not exist")
     void shouldThrowUsernameNotFoundExceptionForMissingUser() {
-        when(userRepository.findByUsername("nonexistent")).thenReturn(Optional.empty());
+        when(userRepository.findByUsernameIgnoreCaseOrEmailIgnoreCase("nonexistent", "nonexistent"))
+                .thenReturn(Optional.empty());
 
         assertThrows(UsernameNotFoundException.class, () -> service.loadUserByUsername("nonexistent"));
     }

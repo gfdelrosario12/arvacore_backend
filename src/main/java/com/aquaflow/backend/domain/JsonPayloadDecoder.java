@@ -67,6 +67,9 @@ public class JsonPayloadDecoder implements PayloadDecoder {
         if (!measurements.containsKey(SensorType.BATTERY_VOLTAGE) && request.getBatteryVoltage() != null) {
             measurements.put(SensorType.BATTERY_VOLTAGE, request.getBatteryVoltage());
         }
+        if (!measurements.containsKey(SensorType.WATER_LEVEL_DISTANCE) && request.getWaterLevelDistance() != null) {
+            measurements.put(SensorType.WATER_LEVEL_DISTANCE, request.getWaterLevelDistance());
+        }
 
         payload.setMeasurements(measurements);
         return payload;

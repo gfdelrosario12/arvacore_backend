@@ -65,10 +65,13 @@ public class WebSocketSecurityInterceptor implements HandshakeInterceptor {
 
         URI uri = request.getURI();
         String query = uri.getQuery();
-        if (query != null && query.contains("token=")) {
+        if (query != null) {
             for (String param : query.split("&")) {
                 if (param.startsWith("token=")) {
                     return param.substring(6);
+                }
+                if (param.startsWith("access_token=")) {
+                    return param.substring(13);
                 }
             }
         }

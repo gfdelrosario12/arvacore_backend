@@ -46,6 +46,21 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/me")
+    public ResponseEntity<UserResponse> getCurrentUser(java.security.Principal principal) {
+        log.info("GET /api/v1/auth/me");
+        if (principal == null || principal.getName() == null) {
+            throw new com.aquaflow.backend.infrastructure.exception.UnauthorizedException("Unauthenticated");
+        }
+        return ResponseEntity.ok(userService.getUserByUsername(principal.getName()));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<java.util.Map<String, String>> logout(java.security.Principal principal) {
+        log.info("POST /api/v1/auth/logout for user {}", principal != null ? principal.getName() : "anonymous");
+        return ResponseEntity.ok(java.util.Map.of("message", "Logged out successfully"));
+    }
+
     @GetMapping("/{username}")
     public ResponseEntity<UserResponse> getUser(@PathVariable String username) {
         log.info("GET /api/v1/auth/{}", username);

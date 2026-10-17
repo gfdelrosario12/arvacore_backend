@@ -33,6 +33,8 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
     private final PayloadDecoderRegistry payloadDecoderRegistry;
     private final SystemEventPublisher systemEventPublisher;
     private final NodePairingService nodePairingService;
+    private final TelemetryStreamService telemetryStreamService;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     // Frame Counter deduplication cache per node
     private final Map<String, Long> lastSeenFrameCounters = new ConcurrentHashMap<>();
@@ -95,26 +97,96 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         String targetIdentifier = explicitNodeId != null ? explicitNodeId
                 : (decoded.getNodeId() != null ? decoded.getNodeId()
                 : (decoded.getDevEui() != null ? decoded.getDevEui()
-                : request.getNodeId()));
+                : (request != null ? request.getNodeId() : null)));
+
+        String rawPayloadStr = null;
+        try {
+            rawPayloadStr = objectMapper.writeValueAsString(request);
+        } catch (Exception e) {
+            rawPayloadStr = String.valueOf(request);
+        }
+
+        Double soilMoisture = null;
+        if (decoded.getMeasurements() != null && decoded.getMeasurements().containsKey(SensorType.SOIL_MOISTURE)) {
+            soilMoisture = decoded.getMeasurements().get(SensorType.SOIL_MOISTURE);
+        } else if (request != null && request.getSoilMoisturePercent() != null) {
+            soilMoisture = request.getSoilMoisturePercent();
+        }
+
+        Double waterDistance = null;
+        if (decoded.getMeasurements() != null && decoded.getMeasurements().containsKey(SensorType.WATER_LEVEL_DISTANCE)) {
+            waterDistance = decoded.getMeasurements().get(SensorType.WATER_LEVEL_DISTANCE);
+        } else if (request != null && request.getWaterLevelDistance() != null) {
+            waterDistance = request.getWaterLevelDistance();
+        }
+
+        Double waterLevelCm = null;
+        if (request != null && request.getMeasurements() != null) {
+            if (request.getMeasurements().containsKey("waterLevelCm")) {
+                waterLevelCm = request.getMeasurements().get("waterLevelCm");
+            } else if (request.getMeasurements().containsKey("water_level_cm")) {
+                waterLevelCm = request.getMeasurements().get("water_level_cm");
+            }
+        }
+
+        Double batteryLevel = decoded.getBatteryLevel() != null ? decoded.getBatteryLevel() : (request != null ? request.getBatteryLevel() : null);
+        Double batteryVoltage = null;
+        if (decoded.getMeasurements() != null && decoded.getMeasurements().containsKey(SensorType.BATTERY_VOLTAGE)) {
+            batteryVoltage = decoded.getMeasurements().get(SensorType.BATTERY_VOLTAGE);
+        } else if (request != null && request.getBatteryVoltage() != null) {
+            batteryVoltage = request.getBatteryVoltage();
+        }
+
+        Integer rssiDbm = decoded.getSignalMetadata() != null ? decoded.getSignalMetadata().getRssiDbm() : (request != null ? request.getRssiDbm() : null);
+        Double snrDb = decoded.getSignalMetadata() != null ? decoded.getSignalMetadata().getSnrDb() : (request != null ? request.getSnrDb() : null);
+        Long seqNum = (request != null && request.getSeq() != null) ? request.getSeq() : decoded.getFCnt();
 
         if (targetIdentifier == null || targetIdentifier.isBlank()) {
+            recordStreamEvent(
+                    "UNKNOWN", "REJECTED", "UNRESOLVED_NODE_IDENTITY: Node identification parameter missing",
+                    rawPayloadStr, seqNum, decoded.getTimestamp(), null, null, null,
+                    soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb, 0
+            );
             throw new ValidationException("UNRESOLVED_NODE_IDENTITY: Node identification parameter missing");
         }
 
         if (!nodePairingService.isMasterEnabled()) {
+            recordStreamEvent(
+                    targetIdentifier, "REJECTED", "MASTER_OFF: Master system is turned OFF. Telemetry ingestion is suspended.",
+                    rawPayloadStr, seqNum, decoded.getTimestamp(), null, null, null,
+                    soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb, 0
+            );
             throw new ValidationException("MASTER_OFF: Master system is turned OFF. Telemetry ingestion is suspended.");
         }
 
-        EdgeNode node = resolveEdgeNode(targetIdentifier);
+        EdgeNode node;
+        try {
+            node = resolveEdgeNode(targetIdentifier);
+            edgeNodeRegistryService.validateNodeActiveForOperations(node.getId());
+        } catch (Exception e) {
+            recordStreamEvent(
+                    targetIdentifier, "REJECTED", e.getMessage(),
+                    rawPayloadStr, seqNum, decoded.getTimestamp(), null, null, null,
+                    soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb, 0
+            );
+            throw e;
+        }
 
-        // Validate active operational invariant
-        edgeNodeRegistryService.validateNodeActiveForOperations(node.getId());
+        Field currentField = (node.getMonitoringZone() != null) ? node.getMonitoringZone().getField() : null;
+        Long fieldId = currentField != null ? currentField.getId() : null;
+        Long zoneId = (node.getMonitoringZone() != null) ? node.getMonitoringZone().getId() : null;
+        String zoneCode = (node.getMonitoringZone() != null) ? node.getMonitoringZone().getName() : null;
 
         // LoRaWAN Frame Counter Duplicate Detection
         Long fCnt = decoded.getFCnt();
         if (fCnt != null) {
             Long lastFCnt = lastSeenFrameCounters.get(node.getNodeId());
             if (lastFCnt != null && lastFCnt >= fCnt) {
+                recordStreamEvent(
+                        node.getNodeId(), "PROCESSED", "Duplicate frame counter " + fCnt + " ignored",
+                        rawPayloadStr, seqNum, decoded.getTimestamp(), fieldId, zoneId, zoneCode,
+                        soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb, 0
+                );
                 return TelemetryUplinkResponse.builder()
                         .success(true)
                         .nodeId(node.getNodeId())
@@ -147,9 +219,6 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
                     continue;
                 }
 
-                Field currentField = (node.getMonitoringZone() != null)
-                        ? node.getMonitoringZone().getField() : null;
-
                 TelemetryReading reading = TelemetryReading.builder()
                         .edgeNode(node)
                         .field(currentField)
@@ -168,25 +237,81 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         // Update Node Health & Last-Seen Metrics
         updateNodeHealthAndMetrics(node, decoded, validatedTimestamp);
 
-        Long fieldId = (node.getMonitoringZone() != null && node.getMonitoringZone().getField() != null)
-                ? node.getMonitoringZone().getField().getId() : null;
-
         try {
             systemEventPublisher.publishTelemetryReceived(node.getNodeId(), fieldId, count);
         } catch (Exception e) {
             // Asynchronous event publication error fallback
         }
 
+        String status = (rejected > 0 && count > 0) ? "PARTIALLY_PROCESSED"
+                : (rejected > 0 && count == 0 ? "REJECTED" : "PROCESSED");
+        String message = rejected == 0
+                ? "Telemetry uplink ingested successfully"
+                : "Telemetry ingested; " + rejected + " out-of-range measurement(s) rejected";
+
+        recordStreamEvent(
+                node.getNodeId(), status, message,
+                rawPayloadStr, seqNum, validatedTimestamp, fieldId, zoneId, zoneCode,
+                soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb, count
+        );
+
         return TelemetryUplinkResponse.builder()
                 .success(true)
                 .nodeId(node.getNodeId())
-                .message(rejected == 0
-                        ? "Telemetry uplink ingested successfully"
-                        : "Telemetry ingested; " + rejected + " out-of-range measurement(s) rejected")
+                .message(message)
                 .duplicate(false)
                 .readingsIngested(count)
                 .timestamp(validatedTimestamp)
                 .build();
+    }
+
+    private void recordStreamEvent(
+            String nodeId,
+            String status,
+            String message,
+            String rawPayload,
+            Long sequenceNumber,
+            LocalDateTime deviceTimestamp,
+            Long fieldId,
+            Long zoneId,
+            String zoneCode,
+            Double soilMoisture,
+            Double waterLevelCm,
+            Double waterDistance,
+            Double batteryLevel,
+            Double batteryVoltage,
+            Integer rssiDbm,
+            Double snrDb,
+            int readingsCount
+    ) {
+        try {
+            TelemetryStreamEvent event = TelemetryStreamEvent.builder()
+                    .eventId(UUID.randomUUID().toString())
+                    .nodeId(nodeId)
+                    .eventType("TELEMETRY_UPLINK")
+                    .status(status)
+                    .receivedAt(LocalDateTime.now())
+                    .deviceTimestamp(deviceTimestamp)
+                    .sequenceNumber(sequenceNumber)
+                    .fieldId(fieldId)
+                    .zoneId(zoneId)
+                    .zoneCode(zoneCode)
+                    .soilMoisturePercent(soilMoisture)
+                    .waterLevelCm(waterLevelCm)
+                    .waterLevelDistanceCm(waterDistance)
+                    .batteryLevel(batteryLevel)
+                    .batteryVoltage(batteryVoltage)
+                    .rssiDbm(rssiDbm)
+                    .snrDb(snrDb)
+                    .readingsCount(readingsCount)
+                    .statusMessage(message)
+                    .rawPayload(rawPayload)
+                    .build();
+
+            telemetryStreamService.recordStreamEvent(event);
+        } catch (Exception ex) {
+            log.error("Failed to record telemetry stream event for node {}: {}", nodeId, ex.getMessage());
+        }
     }
 
     private EdgeNode resolveEdgeNode(String identifier) {

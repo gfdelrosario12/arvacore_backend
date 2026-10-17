@@ -11,6 +11,8 @@ import com.aquaflow.backend.infrastructure.exception.ResourceNotFoundException;
 import com.aquaflow.backend.infrastructure.exception.ValidationException;
 import com.aquaflow.backend.infrastructure.web.RealtimeEventPublisherService;
 import com.aquaflow.backend.persistence.EdgeNodeRepository;
+import com.aquaflow.backend.persistence.MonitoringPointRepository;
+import com.aquaflow.backend.persistence.MonitoringZoneRepository;
 import com.aquaflow.backend.persistence.NodePairingRequestRepository;
 import com.aquaflow.backend.persistence.SystemAuditLogRepository;
 import com.aquaflow.backend.persistence.SystemStateRepository;
@@ -41,6 +43,12 @@ public class NodePairingServiceImpl implements NodePairingService {
 
     @Autowired(required = false)
     private RealtimeEventPublisherService realtimeEventPublisherService;
+
+    @Autowired(required = false)
+    private MonitoringZoneRepository monitoringZoneRepository;
+
+    @Autowired(required = false)
+    private MonitoringPointRepository monitoringPointRepository;
 
     // -------------------------------------------------------------
     // Master State Management
@@ -365,8 +373,39 @@ public class NodePairingServiceImpl implements NodePairingService {
         // Commission the node to ACTIVE state so telemetry will be authorized
         try {
             edgeNodeRegistryService.commissionNode(nodeResponse.getId(), null);
+            EdgeNode commissionedNode = edgeNodeRepository.findById(nodeResponse.getId()).orElse(null);
+            if (commissionedNode != null) {
+                commissionedNode.setLifecycleState(NodeLifecycleState.ACTIVE);
+                edgeNodeRepository.save(commissionedNode);
+            }
         } catch (Exception e) {
             log.info("Node commissioning during approval status: {}", e.getMessage());
+        }
+
+        // If assigned to a monitoring zone, ensure a primary MonitoringPoint exists
+        if (request.getMonitoringZoneId() != null && monitoringZoneRepository != null && monitoringPointRepository != null) {
+            try {
+                MonitoringZone zone = monitoringZoneRepository.findById(request.getMonitoringZoneId()).orElse(null);
+                if (zone != null) {
+                    List<MonitoringPoint> existingPoints = monitoringPointRepository.findByEdgeNodeId(nodeResponse.getId());
+                    if (existingPoints.isEmpty()) {
+                        EdgeNode nodeEntity = edgeNodeRepository.findById(nodeResponse.getId()).orElse(null);
+                        if (nodeEntity != null) {
+                            MonitoringPoint mp = MonitoringPoint.builder()
+                                    .name("MP-" + nodeEntity.getNodeId())
+                                    .monitoringZone(zone)
+                                    .edgeNode(nodeEntity)
+                                    .primarySensorType(SensorType.SOIL_MOISTURE)
+                                    .depthCm(15.0)
+                                    .build();
+                            monitoringPointRepository.save(mp);
+                            log.info("Created primary MonitoringPoint for newly approved node {}", nodeEntity.getNodeId());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("MonitoringPoint creation for node {}: {}", nodeResponse.getNodeId(), e.getMessage());
+            }
         }
 
         // Audit log

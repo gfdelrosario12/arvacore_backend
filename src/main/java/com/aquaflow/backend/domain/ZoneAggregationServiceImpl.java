@@ -89,7 +89,8 @@ public class ZoneAggregationServiceImpl implements ZoneAggregationService {
                 lastSeen = node.getHealthMetrics().getLastHeartbeat();
             }
 
-            boolean isCommissioned = node.getLifecycleState() == NodeLifecycleState.COMMISSIONED;
+            boolean isCommissioned = node.getLifecycleState() == NodeLifecycleState.COMMISSIONED
+                    || node.getLifecycleState() == NodeLifecycleState.ACTIVE;
             boolean isCriticalHealth = node.getHealthState() == HealthState.CRITICAL;
 
             List<TelemetryReading> readings = telemetryReadingRepository.findByEdgeNodeIdOrderByTimestampDesc(node.getId());
@@ -126,16 +127,18 @@ public class ZoneAggregationServiceImpl implements ZoneAggregationService {
                         } else if (r.getSensorType() == SensorType.HUMIDITY) {
                             humidityValues.add(r.getValueNum());
                         } else if (r.getSensorType() == SensorType.WATER_LEVEL_DISTANCE) {
-                            // JSN-SR04T ultrasonic sensor measures distance from sensor head to water surface.
-                            // Water depth (cm) = datum offset (20.0 cm) - measured distance (cm)
-                            // Valid still-well depth range is -30.0 cm to +30.0 cm (distance ~ 5.0 cm to 50.0 cm).
-                            // Out-of-bounds distances (e.g. bench tests or sensor dislodged) are ignored.
+                            // Ultrasonic sensor measures distance from sensor head to floating ball surface.
+                            // Water Level = Calibrated Sensor-to-Bottom Distance - Measured Sensor-to-Ball Distance
+                            // Maximum measurable water level is 3 feet (36 inches = 91.44 cm).
                             double distance = r.getValueNum();
-                            if (distance >= 5.0 && distance <= 50.0) {
-                                double depth = 20.0 - distance;
-                                if (depth >= -30.0 && depth <= 30.0) {
-                                    waterLevelValues.add(Math.round(depth * 100.0) / 100.0);
+                            if (distance >= 5.0 && distance <= 450.0) {
+                                double calibratedBottom = 101.6; // 40 inches default
+                                if (distance > calibratedBottom) {
+                                    calibratedBottom = distance;
                                 }
+                                double depth = Math.max(0.0, calibratedBottom - distance);
+                                depth = Math.min(depth, 91.44); // 36 inches max
+                                waterLevelValues.add(Math.round(depth * 100.0) / 100.0);
                             }
                         } else if (r.getSensorType() == SensorType.WATER_FLOW) {
                             continue;

@@ -75,11 +75,17 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler)
                 )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/auth/**").permitAll()
-                        .requestMatchers("/api/v1/pairing/request", "/api/v1/pairing/status/**").hasAnyRole("GATEWAY", "ADMIN", "OPERATOR")
+                        .requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
+                        .requestMatchers("/api/v1/auth/register").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/auth/**").authenticated()
+                        .requestMatchers("/api/v1/pairing/request", "/api/v1/pairing/status/**").permitAll()
+                        .requestMatchers("/api/v1/pairing/requests/**").hasAnyRole("ADMIN", "OPERATOR")
                         .requestMatchers("/api/v1/pairing/**").hasAnyRole("ADMIN", "OPERATOR")
-                        .requestMatchers("/api/v1/system/master-state").hasAnyRole("ADMIN", "OPERATOR")
-                        .requestMatchers("/api/v1/system/health").hasAnyRole("ADMIN", "OPERATOR")
+                        .requestMatchers("/api/v1/telemetry/uplink/**", "/api/v1/telemetry/uplink", "/api/v1/telemetry/batch-uplink").permitAll()
+                        .requestMatchers("/api/v1/telemetry/stream/**").hasAnyRole("ADMIN", "OPERATOR", "SUPERVISOR")
+                        .requestMatchers("/api/v1/telemetry/stream").permitAll()
+                        .requestMatchers("/api/v1/system/master-state").hasAnyRole("ADMIN", "OPERATOR", "SUPERVISOR")
+                        .requestMatchers("/api/v1/system/health").hasAnyRole("ADMIN", "OPERATOR", "SUPERVISOR")
                         .requestMatchers("/api/v1/chirpstack/webhook/**", "/api/v1/lora/webhook/**").hasAnyRole("EDGE_NODE", "OPERATOR", "ADMIN")
                         .requestMatchers("/api/v1/audit/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/irrigation/emergency-stop", "/api/v1/irrigation/manual/**").hasAnyRole("ADMIN", "OPERATOR")
@@ -120,7 +126,8 @@ public class SecurityConfig {
                 "X-Client",
                 "X-Correlation-ID",
                 "X-Webhook-Secret",
-                "X-Downlink-Secret"
+                "X-Downlink-Secret",
+                "X-ArvaCore-Gateway-Key"
         ));
         configuration.setExposedHeaders(List.of("X-Correlation-ID", "Authorization"));
         configuration.setAllowCredentials(true);

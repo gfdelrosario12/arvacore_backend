@@ -22,6 +22,7 @@ public class ZoneResponse {
     private Double waterAllocationLimit;
     private Double soilMoisturePercent;
     private Double waterLevelCm;
+    private Double waterLevelDistanceCm;
     private List<String> assignedNodeIds;
     private String status;
     private Integer batteryPercent;

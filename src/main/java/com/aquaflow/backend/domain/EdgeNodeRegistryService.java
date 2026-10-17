@@ -22,6 +22,7 @@ public interface EdgeNodeRegistryService {
     EdgeNodeResponse updateNode(Long id, RegisterNodeRequest request);
 
     EdgeNodeResponse assignNodeToField(Long id, AssignNodeFieldRequest request);
+    EdgeNodeResponse assignNodeToField(String idOrNodeId, AssignNodeFieldRequest request);
 
     CommissionNodeResponse commissionNode(Long id, CommissionNodeRequest request);
 

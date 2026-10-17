@@ -198,7 +198,18 @@ public class DtoMapper {
                 if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.SOIL_MOISTURE && res.getSoilMoisturePercent() == null) {
                     res.setSoilMoisturePercent(r.getValueNum());
                 } else if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.WATER_LEVEL_DISTANCE && res.getWaterLevelCm() == null) {
-                    double depth = Math.max(0.0, 30.0 - r.getValueNum());
+                    double distance = r.getValueNum();
+                    res.setWaterLevelDistanceCm(Math.round(distance * 100.0) / 100.0);
+                    // Ultrasonic water-level calculation:
+                    // Water Level = Calibrated Sensor-to-Bottom Distance - Measured Sensor-to-Ball Distance
+                    // Default calibrated reference is 40 inches (101.6 cm), or adapts to physical installation if greater
+                    double calibratedBottom = 101.6;
+                    if (distance > calibratedBottom) {
+                        calibratedBottom = distance;
+                    }
+                    double depth = Math.max(0.0, calibratedBottom - distance);
+                    // Max measurable water level is 3 feet (36 inches = 91.44 cm)
+                    depth = Math.min(depth, 91.44);
                     res.setWaterLevelCm(Math.round(depth * 100.0) / 100.0);
                 } else if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.BATTERY_VOLTAGE && res.getBatteryVoltage() == null) {
                     res.setBatteryVoltage(r.getValueNum());

@@ -43,21 +43,27 @@ public class UserAuthenticationRbacIntegrationTest {
                 .build();
     }
 
-    @ParameterizedTest(name = "Authenticate account {0} expecting role {2}")
+    @ParameterizedTest(name = "Authenticate identifier [{0}] -> expected user [{3}], role [{2}], email [{4}]")
     @CsvSource({
-            "admin, admin_pass, ROLE_ADMIN, admin@arvacore.io",
-            "Gladwin, password123, ROLE_ADMIN, gladwin@aquaflow.io",
-            "Pranz, password123, ROLE_OPERATOR, pranz@aquaflow.io",
-            "Jenice, password123, ROLE_SUPERVISOR, jenice@aquaflow.io",
-            "MrFarmer, password123, ROLE_USER, mr.farmer@aquaflow.io",
-            "farmer_m, password123, ROLE_USER, farmer_m@aquaflow.io",
-            "MsFarmer, password123, ROLE_USER, ms.farmer@aquaflow.io",
-            "farmer_f, password123, ROLE_USER, farmer_f@aquaflow.io"
+            "admin, password123, ROLE_ADMIN, admin, admin@arvacore.io",
+            "admin@arvacore.io, password123, ROLE_ADMIN, admin, admin@arvacore.io",
+            "Gladwin, password123, ROLE_ADMIN, Gladwin, gladwin@aquaflow.io",
+            "gladwin@aquaflow.io, password123, ROLE_ADMIN, Gladwin, gladwin@aquaflow.io",
+            "Pranz, password123, ROLE_OPERATOR, Pranz, pranz@aquaflow.io",
+            "pranz@aquaflow.io, password123, ROLE_OPERATOR, Pranz, pranz@aquaflow.io",
+            "Jenice, password123, ROLE_SUPERVISOR, Jenice, jenice@aquaflow.io",
+            "jenice@aquaflow.io, password123, ROLE_SUPERVISOR, Jenice, jenice@aquaflow.io",
+            "MrFarmer, password123, ROLE_USER, MrFarmer, mr.farmer@aquaflow.io",
+            "mr.farmer@aquaflow.io, password123, ROLE_USER, MrFarmer, mr.farmer@aquaflow.io",
+            "farmer_m, password123, ROLE_USER, MrFarmer, mr.farmer@aquaflow.io",
+            "MsFarmer, password123, ROLE_USER, MsFarmer, ms.farmer@aquaflow.io",
+            "ms.farmer@aquaflow.io, password123, ROLE_USER, MsFarmer, ms.farmer@aquaflow.io",
+            "farmer_f, password123, ROLE_USER, MsFarmer, ms.farmer@aquaflow.io"
     })
-    @DisplayName("Verify authentication and JWT issuance for authorized test accounts")
-    public void shouldAuthenticateAuthorizedAccounts(String username, String password, String expectedRole, String expectedEmail) throws Exception {
+    @DisplayName("Verify authentication and JWT issuance for authorized test accounts and aliases")
+    public void shouldAuthenticateAuthorizedAccounts(String identifier, String password, String expectedRole, String expectedUsername, String expectedEmail) throws Exception {
         LoginRequest request = new LoginRequest();
-        request.setUsername(username);
+        request.setUsername(identifier);
         request.setPassword(password);
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
@@ -73,9 +79,53 @@ public class UserAuthenticationRbacIntegrationTest {
 
         JsonNode userNode = jsonNode.get("user");
         assertThat(userNode).isNotNull();
-        assertThat(userNode.get("username").asText()).isEqualTo(username);
+        assertThat(userNode.get("username").asText()).isEqualTo(expectedUsername);
         assertThat(userNode.get("role").asText()).isEqualTo(expectedRole);
         assertThat(userNode.get("email").asText()).isEqualTo(expectedEmail);
+
+        // Also verify /api/v1/auth/me returns the authenticated user
+        String token = jsonNode.get("accessToken").asText();
+        MvcResult meResult = mockMvc.perform(get("/api/v1/auth/me")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode meNode = objectMapper.readTree(meResult.getResponse().getContentAsString());
+        assertThat(meNode.get("username").asText()).isEqualTo(expectedUsername);
+        assertThat(meNode.get("role").asText()).isEqualTo(expectedRole);
+        assertThat(meNode.get("email").asText()).isEqualTo(expectedEmail);
+    }
+
+    @Test
+    @DisplayName("Verify account isolation: admin and Gladwin have distinct user IDs")
+    public void shouldMaintainIndependentAdminAccounts() throws Exception {
+        JsonNode adminJson = loginAndGetBody("admin", "password123");
+        JsonNode gladwinJson = loginAndGetBody("Gladwin", "password123");
+
+        long adminId = adminJson.get("user").get("id").asLong();
+        long gladwinId = gladwinJson.get("user").get("id").asLong();
+
+        assertThat(adminId).isNotEqualTo(gladwinId);
+        assertThat(adminJson.get("user").get("username").asText()).isEqualTo("admin");
+        assertThat(gladwinJson.get("user").get("username").asText()).isEqualTo("Gladwin");
+        assertThat(adminJson.get("user").get("email").asText()).isEqualTo("admin@arvacore.io");
+        assertThat(gladwinJson.get("user").get("email").asText()).isEqualTo("gladwin@aquaflow.io");
+    }
+
+    @Test
+    @DisplayName("Verify account isolation: MrFarmer and MsFarmer have distinct user IDs and alias resolution")
+    public void shouldMaintainIndependentFarmerAccounts() throws Exception {
+        JsonNode mrFarmer = loginAndGetBody("farmer_m", "password123");
+        JsonNode msFarmer = loginAndGetBody("farmer_f", "password123");
+
+        long mrId = mrFarmer.get("user").get("id").asLong();
+        long msId = msFarmer.get("user").get("id").asLong();
+
+        assertThat(mrId).isNotEqualTo(msId);
+        assertThat(mrFarmer.get("user").get("username").asText()).isEqualTo("MrFarmer");
+        assertThat(msFarmer.get("user").get("username").asText()).isEqualTo("MsFarmer");
+        assertThat(mrFarmer.get("user").get("email").asText()).isEqualTo("mr.farmer@aquaflow.io");
+        assertThat(msFarmer.get("user").get("email").asText()).isEqualTo("ms.farmer@aquaflow.io");
     }
 
     @Test
@@ -103,11 +153,9 @@ public class UserAuthenticationRbacIntegrationTest {
     @Test
     @DisplayName("Verify unauthorized access (401) without JWT or with malformed token")
     public void shouldRejectUnauthenticatedRequests() throws Exception {
-        // Protected endpoint without token -> 401
         mockMvc.perform(get("/api/v1/zones"))
                 .andExpect(status().isUnauthorized());
 
-        // Protected endpoint with invalid/malformed token -> 401
         mockMvc.perform(get("/api/v1/zones")
                         .header("Authorization", "Bearer invalid.malformed.token"))
                 .andExpect(status().isUnauthorized());
@@ -116,13 +164,12 @@ public class UserAuthenticationRbacIntegrationTest {
     @Test
     @DisplayName("Verify Role-Based Access Control (RBAC) across ADMIN, OPERATOR, SUPERVISOR, and USER")
     public void shouldEnforceRoleBasedAccessControl() throws Exception {
-        // 1. Obtain tokens for different roles
-        String adminToken = loginAndGetToken("admin", "admin_pass");
+        String adminToken = loginAndGetToken("admin", "password123");
         String operatorToken = loginAndGetToken("Pranz", "password123");
         String supervisorToken = loginAndGetToken("Jenice", "password123");
         String userToken = loginAndGetToken("MrFarmer", "password123");
 
-        // 2. /api/v1/audit/system requires ROLE_ADMIN
+        // 1. /api/v1/audit/system requires ROLE_ADMIN
         mockMvc.perform(get("/api/v1/audit/system")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk());
@@ -139,7 +186,7 @@ public class UserAuthenticationRbacIntegrationTest {
                         .header("Authorization", "Bearer " + userToken))
                 .andExpect(status().isForbidden());
 
-        // 3. /api/v1/system/master-state requires ROLE_ADMIN or ROLE_OPERATOR
+        // 2. /api/v1/system/master-state allows ROLE_ADMIN, ROLE_OPERATOR, ROLE_SUPERVISOR; forbids ROLE_USER
         mockMvc.perform(get("/api/v1/system/master-state")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk());
@@ -150,9 +197,26 @@ public class UserAuthenticationRbacIntegrationTest {
 
         mockMvc.perform(get("/api/v1/system/master-state")
                         .header("Authorization", "Bearer " + supervisorToken))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/v1/system/master-state")
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isForbidden());
+
+        // 3. /api/v1/telemetry/stream/summary allows ROLE_ADMIN, ROLE_OPERATOR, ROLE_SUPERVISOR; forbids ROLE_USER
+        mockMvc.perform(get("/api/v1/telemetry/stream/summary")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/telemetry/stream/summary")
+                        .header("Authorization", "Bearer " + operatorToken))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/telemetry/stream/summary")
+                        .header("Authorization", "Bearer " + supervisorToken))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/telemetry/stream/summary")
                         .header("Authorization", "Bearer " + userToken))
                 .andExpect(status().isForbidden());
 
@@ -174,7 +238,7 @@ public class UserAuthenticationRbacIntegrationTest {
                 .andExpect(status().isOk());
     }
 
-    private String loginAndGetToken(String username, String password) throws Exception {
+    private JsonNode loginAndGetBody(String username, String password) throws Exception {
         LoginRequest request = new LoginRequest();
         request.setUsername(username);
         request.setPassword(password);
@@ -185,8 +249,10 @@ public class UserAuthenticationRbacIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn();
 
-        JsonNode jsonNode = objectMapper.readTree(result.getResponse().getContentAsString());
-        return jsonNode.get("accessToken").asText();
+        return objectMapper.readTree(result.getResponse().getContentAsString());
+    }
+
+    private String loginAndGetToken(String username, String password) throws Exception {
+        return loginAndGetBody(username, password).get("accessToken").asText();
     }
 }
-

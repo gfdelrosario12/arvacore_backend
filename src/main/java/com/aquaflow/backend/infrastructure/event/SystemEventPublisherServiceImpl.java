@@ -35,12 +35,34 @@ public class SystemEventPublisherServiceImpl implements SystemEventPublisher {
                 .eventId(UUID.randomUUID().toString())
                 .eventType(SystemEventType.TELEMETRY_RECEIVED)
                 .timestamp(LocalDateTime.now())
+                .occurredAt(LocalDateTime.now())
                 .aggregateId(nodeId)
+                .scope(nodeId != null ? nodeId : "SYSTEM")
                 .fieldId(fieldId)
                 .payload(Map.of(
                         "nodeId", nodeId != null ? nodeId : "",
                         "readingsIngested", readingsIngested
                 ))
+                .build();
+        publish(event);
+    }
+
+    @Override
+    public void publishTelemetryStreamEvent(com.aquaflow.backend.entity.TelemetryStreamEvent streamEvent) {
+        if (streamEvent == null) return;
+        com.aquaflow.backend.dto.response.TelemetryStreamEventResponse dto =
+                com.aquaflow.backend.dto.response.TelemetryStreamEventResponse.fromEntity(streamEvent);
+        SystemEvent event = SystemEvent.builder()
+                .version(1)
+                .eventId(streamEvent.getEventId())
+                .eventType(SystemEventType.TELEMETRY_RECEIVED)
+                .timestamp(streamEvent.getReceivedAt() != null ? streamEvent.getReceivedAt() : LocalDateTime.now())
+                .occurredAt(streamEvent.getReceivedAt() != null ? streamEvent.getReceivedAt() : LocalDateTime.now())
+                .sequence(streamEvent.getSequenceNumber() != null ? streamEvent.getSequenceNumber() : 0L)
+                .aggregateId(streamEvent.getNodeId())
+                .scope(streamEvent.getNodeId() != null ? streamEvent.getNodeId() : "SYSTEM")
+                .fieldId(streamEvent.getFieldId())
+                .payload(dto)
                 .build();
         publish(event);
     }

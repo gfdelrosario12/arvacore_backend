@@ -28,6 +28,7 @@ public class TelemetryUplinkRequest {
     private Double batteryLevel;
     private Double batteryVoltage;
     private Double soilMoisturePercent;
+    private Double waterLevelDistance;
     private Double solarVoltage;
     private Integer rssiDbm;
     private Double snrDb;
@@ -41,6 +42,8 @@ public class TelemetryUplinkRequest {
     public void setBatteryVoltage(Double batteryVoltage) { this.batteryVoltage = batteryVoltage; }
     public Double getSoilMoisturePercent() { return soilMoisturePercent; }
     public void setSoilMoisturePercent(Double soilMoisturePercent) { this.soilMoisturePercent = soilMoisturePercent; }
+    public Double getWaterLevelDistance() { return waterLevelDistance; }
+    public void setWaterLevelDistance(Double waterLevelDistance) { this.waterLevelDistance = waterLevelDistance; }
 
     public String getNodeId() { return nodeId; }
     public void setNodeId(String nodeId) { this.nodeId = nodeId; }

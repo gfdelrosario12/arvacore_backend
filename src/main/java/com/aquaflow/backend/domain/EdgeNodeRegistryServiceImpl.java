@@ -142,8 +142,19 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
     }
 
     @Override
+    public EdgeNodeResponse assignNodeToField(String idOrNodeId, AssignNodeFieldRequest request) {
+        EdgeNode node = findNodeOrThrow(idOrNodeId);
+        return doAssignNodeToField(node, request);
+    }
+
+    @Override
     public EdgeNodeResponse assignNodeToField(Long id, AssignNodeFieldRequest request) {
         EdgeNode node = findNodeOrThrow(id);
+        return doAssignNodeToField(node, request);
+    }
+
+    private EdgeNodeResponse doAssignNodeToField(EdgeNode node, AssignNodeFieldRequest request) {
+        Long previousZoneId = node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null;
 
         if (request.getMonitoringZoneId() != null) {
             MonitoringZone zone = monitoringZoneRepository.findById(request.getMonitoringZoneId())
@@ -156,7 +167,6 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
                 }
             }
 
-            Long previousZoneId = node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null;
             node.setMonitoringZone(zone);
             EdgeNode saved = edgeNodeRepository.save(node);
 
@@ -165,7 +175,7 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
                     .eventType("NODE_FIELD_ASSIGNMENT_CHANGED")
                     .actor("ARVALINK_ADMIN")
                     .entityType("EdgeNode")
-                    .entityId(String.valueOf(id))
+                    .entityId(String.valueOf(node.getId()))
                     .payloadJson(String.format("{\"nodeId\":\"%s\",\"previousZoneId\":%s,\"newZoneId\":%d,\"fieldId\":%d}",
                             saved.getNodeId(), previousZoneId != null ? previousZoneId : "null", zone.getId(),
                             zone.getField() != null ? zone.getField().getId() : null))
@@ -175,9 +185,24 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
             log.info("Node {} successfully assigned to field {} and zone {}",
                     saved.getNodeId(), zone.getField() != null ? zone.getField().getName() : "N/A", zone.getName());
             return DtoMapper.toEdgeNodeResponse(saved);
-        }
+        } else {
+            // Unassign node from current zone
+            node.setMonitoringZone(null);
+            EdgeNode saved = edgeNodeRepository.save(node);
 
-        return DtoMapper.toEdgeNodeResponse(node);
+            IrrigationAuditLog auditLog = IrrigationAuditLog.builder()
+                    .eventType("NODE_FIELD_ASSIGNMENT_CLEARED")
+                    .actor("ARVALINK_ADMIN")
+                    .entityType("EdgeNode")
+                    .entityId(String.valueOf(node.getId()))
+                    .payloadJson(String.format("{\"nodeId\":\"%s\",\"previousZoneId\":%s,\"newZoneId\":null}",
+                            saved.getNodeId(), previousZoneId != null ? previousZoneId : "null"))
+                    .build();
+            auditLogRepository.save(auditLog);
+
+            log.info("Node {} unassigned from previous zone {}", saved.getNodeId(), previousZoneId);
+            return DtoMapper.toEdgeNodeResponse(saved);
+        }
     }
 
     @Override
@@ -388,6 +413,19 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
     private EdgeNode findNodeOrThrow(Long id) {
         return edgeNodeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Edge node not found with id: " + id));
+    }
+
+    private EdgeNode findNodeOrThrow(String idOrNodeId) {
+        if (idOrNodeId == null || idOrNodeId.isBlank()) {
+            throw new ResourceNotFoundException("Node ID cannot be null or empty");
+        }
+        try {
+            Long numericId = Long.parseLong(idOrNodeId);
+            var opt = edgeNodeRepository.findById(numericId);
+            if (opt.isPresent()) return opt.get();
+        } catch (NumberFormatException ignored) {}
+        return edgeNodeRepository.findByNodeId(idOrNodeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Edge node not found with identifier: " + idOrNodeId));
     }
 
     private void checkActiveState(EdgeNode node) {

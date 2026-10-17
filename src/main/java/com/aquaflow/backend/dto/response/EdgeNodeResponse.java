@@ -28,6 +28,7 @@ public class EdgeNodeResponse {
     private Integer signalDbm;
     private Double soilMoisturePercent;
     private Double waterLevelCm;
+    private Double waterLevelDistanceCm;
     private LocalDateTime lastHeartbeat;
     private Long monitoringZoneId;
     private String monitoringZoneName;
@@ -43,6 +44,8 @@ public class EdgeNodeResponse {
     public void setSoilMoisturePercent(Double soilMoisturePercent) { this.soilMoisturePercent = soilMoisturePercent; }
     public Double getWaterLevelCm() { return waterLevelCm; }
     public void setWaterLevelCm(Double waterLevelCm) { this.waterLevelCm = waterLevelCm; }
+    public Double getWaterLevelDistanceCm() { return waterLevelDistanceCm; }
+    public void setWaterLevelDistanceCm(Double waterLevelDistanceCm) { this.waterLevelDistanceCm = waterLevelDistanceCm; }
     public Double getBatteryVoltage() { return batteryVoltage; }
     public void setBatteryVoltage(Double batteryVoltage) { this.batteryVoltage = batteryVoltage; }
 
