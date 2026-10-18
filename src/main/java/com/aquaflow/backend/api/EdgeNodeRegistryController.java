@@ -68,6 +68,11 @@ public class EdgeNodeRegistryController {
         return ResponseEntity.ok(edgeNodeRegistryService.assignNodeToField(id, request));
     }
 
+    @DeleteMapping("/{id}/field-assignment")
+    public ResponseEntity<EdgeNodeResponse> removeNodeFromField(@PathVariable String id) {
+        return ResponseEntity.ok(edgeNodeRegistryService.assignNodeToField(id, new AssignNodeFieldRequest(null, null)));
+    }
+
     @GetMapping("/{id}/history")
     public ResponseEntity<List<NodeAssignmentHistoryResponse>> getNodeAssignmentHistory(@PathVariable String id) {
         try {
@@ -97,6 +102,17 @@ public class EdgeNodeRegistryController {
         String actor = (authentication != null && authentication.getName() != null)
                 ? authentication.getName() : "ADMIN";
         return ResponseEntity.ok(nodePairingService.unpairNode(nodeId, actor));
+    }
+
+    @PostMapping("/{nodeId}/pairing/reset")
+    public ResponseEntity<com.aquaflow.backend.dto.response.NodePairingResetResponse> resetNodePairing(
+            @PathVariable String nodeId,
+            @RequestBody(required = false) com.aquaflow.backend.dto.request.NodePairingResetRequest request,
+            Authentication authentication) {
+        String actor = (authentication != null && authentication.getName() != null)
+                ? authentication.getName() : "ADMIN";
+        String reason = (request != null && request.getReason() != null) ? request.getReason() : "Single node pairing reset";
+        return ResponseEntity.ok(nodePairingService.resetNodePairing(nodeId, reason, actor));
     }
 
     @PostMapping("/{id}/replace")

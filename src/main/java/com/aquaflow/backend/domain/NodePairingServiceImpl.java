@@ -2,6 +2,7 @@ package com.aquaflow.backend.domain;
 
 import com.aquaflow.backend.dto.request.MasterStateUpdateRequest;
 import com.aquaflow.backend.dto.request.NodePairingSubmissionRequest;
+import com.aquaflow.backend.dto.request.NodePairingResetRequest;
 import com.aquaflow.backend.dto.request.PairingRejectionRequest;
 import com.aquaflow.backend.dto.request.RegisterNodeRequest;
 import com.aquaflow.backend.dto.response.*;
@@ -53,6 +54,13 @@ public class NodePairingServiceImpl implements NodePairingService {
     @Autowired(required = false)
     @org.springframework.context.annotation.Lazy
     private TelemetryIngestionService telemetryIngestionService;
+
+    @Autowired(required = false)
+    private com.aquaflow.backend.persistence.NodeAssignmentHistoryRepository nodeAssignmentHistoryRepository;
+
+    @Autowired(required = false)
+    @org.springframework.context.annotation.Lazy
+    private FarmlandValidationService farmlandValidationService;
 
     // -------------------------------------------------------------
     // Master State Management
@@ -561,6 +569,194 @@ public class NodePairingServiceImpl implements NodePairingService {
                 .revokedAt(now)
                 .message(String.format("Node %s has been successfully unpaired. Pairing authorization has been revoked.", cleanNodeId))
                 .build();
+    }
+
+    @Override
+    public NodePairingResetResponse resetNodePairing(String nodeId, String reason, String actor) {
+        NodePairingResetRequest request = NodePairingResetRequest.builder()
+                .nodeIds(List.of(nodeId))
+                .reason(reason)
+                .clearFieldAssignments(true)
+                .build();
+        return resetPairing(request, actor);
+    }
+
+    @Override
+    public NodePairingResetResponse resetPairing(NodePairingResetRequest request, String actor) {
+        String effectiveActor = (actor != null && !actor.isBlank()) ? actor : "ADMIN";
+        String reason = (request != null && request.getReason() != null && !request.getReason().isBlank())
+                ? request.getReason() : "Pairing state reset by administrator";
+        boolean clearFieldAssignments = request == null || request.isClearFieldAssignments();
+
+        List<String> targetNodeIds;
+        if (request != null && request.getNodeIds() != null && !request.getNodeIds().isEmpty()) {
+            targetNodeIds = request.getNodeIds().stream()
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .distinct()
+                    .toList();
+        } else {
+            targetNodeIds = edgeNodeRepository.findAll().stream()
+                    .filter(n -> n.getLifecycleState() != NodeLifecycleState.UNREGISTERED &&
+                                 n.getLifecycleState() != NodeLifecycleState.DECOMMISSIONED)
+                    .map(EdgeNode::getNodeId)
+                    .distinct()
+                    .toList();
+        }
+
+        List<String> succeeded = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
+
+        for (String nodeId : targetNodeIds) {
+            try {
+                boolean done = doResetSingleNodePairing(nodeId, reason, clearFieldAssignments, effectiveActor);
+                if (done) {
+                    succeeded.add(nodeId);
+                } else {
+                    failed.add(nodeId);
+                }
+            } catch (Exception e) {
+                log.error("Failed to reset pairing for node {}: {}", nodeId, e.getMessage(), e);
+                failed.add(nodeId);
+            }
+        }
+
+        String message = String.format("Pairing reset completed: %d succeeded, %d failed out of %d requested.",
+                succeeded.size(), failed.size(), targetNodeIds.size());
+
+        return NodePairingResetResponse.builder()
+                .totalRequested(targetNodeIds.size())
+                .succeededCount(succeeded.size())
+                .failedCount(failed.size())
+                .resetNodeIds(succeeded)
+                .failedNodeIds(failed)
+                .message(message)
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+    private boolean doResetSingleNodePairing(String nodeId, String reason, boolean clearFieldAssignments, String effectiveActor) {
+        String cleanNodeId = (nodeId != null) ? nodeId.trim() : "";
+        if (cleanNodeId.isBlank()) return false;
+
+        LocalDateTime now = LocalDateTime.now();
+        String previousState = "UNREGISTERED";
+        Long fieldId = null;
+
+        // 1. Reconcile EdgeNode if present in registry
+        Optional<EdgeNode> nodeOpt = edgeNodeRepository.findByNodeId(cleanNodeId);
+        if (nodeOpt.isPresent()) {
+            EdgeNode node = nodeOpt.get();
+            previousState = node.getLifecycleState() != null ? node.getLifecycleState().name() : "ACTIVE";
+
+            if (node.getMonitoringZone() != null && node.getMonitoringZone().getField() != null) {
+                fieldId = node.getMonitoringZone().getField().getId();
+            }
+
+            if (clearFieldAssignments) {
+                // Disassociate from monitoring points
+                if (monitoringPointRepository != null) {
+                    try {
+                        List<MonitoringPoint> points = monitoringPointRepository.findByEdgeNodeId(node.getId());
+                        if (points != null && !points.isEmpty()) {
+                            points.forEach(p -> p.setEdgeNode(null));
+                            monitoringPointRepository.saveAll(points);
+                        }
+                    } catch (Exception e) {
+                        log.warn("Error disassociating monitoring points during reset for node {}: {}", cleanNodeId, e.getMessage());
+                    }
+                }
+
+                // Close active assignment history record
+                if (nodeAssignmentHistoryRepository != null) {
+                    try {
+                        var activeHistOpt = nodeAssignmentHistoryRepository.findActiveAssignment(node.getId());
+                        activeHistOpt.ifPresent(h -> {
+                            h.setUnassignedAt(now);
+                            h.setReason("Pairing reset: " + reason);
+                            nodeAssignmentHistoryRepository.save(h);
+                        });
+                    } catch (Exception e) {
+                        log.warn("Error closing assignment history for node {}: {}", cleanNodeId, e.getMessage());
+                    }
+                }
+
+                node.setMonitoringZone(null);
+            }
+
+            node.setLifecycleState(NodeLifecycleState.UNREGISTERED);
+            edgeNodeRepository.save(node);
+            log.info("Reset EdgeNode {} lifecycleState to UNREGISTERED", cleanNodeId);
+        }
+
+        // 2. Revoke and expire all pairing requests for this node
+        List<NodePairingRequest> nodeRequests = pairingRequestRepository.findAll()
+                .stream()
+                .filter(r -> cleanNodeId.equalsIgnoreCase(r.getNodeId()))
+                .toList();
+
+        for (NodePairingRequest req : nodeRequests) {
+            req.setPairingStatus(PairingStatus.REVOKED);
+            req.setRejectionReason(reason);
+            req.setProcessedAt(now);
+            req.setProcessedBy(effectiveActor);
+            pairingRequestRepository.save(req);
+        }
+
+        if (nodeRequests.isEmpty()) {
+            NodePairingRequest revokedRecord = NodePairingRequest.builder()
+                    .nodeId(cleanNodeId)
+                    .pairingStatus(PairingStatus.REVOKED)
+                    .rejectionReason(reason)
+                    .requestedAt(now)
+                    .expiresAt(now)
+                    .processedAt(now)
+                    .processedBy(effectiveActor)
+                    .build();
+            pairingRequestRepository.save(revokedRecord);
+        }
+
+        // 3. Clear cached telemetry frame counter or runtime authorization
+        if (telemetryIngestionService != null) {
+            try {
+                telemetryIngestionService.clearNodeCache(cleanNodeId);
+            } catch (Exception e) {
+                log.warn("Failed to clear telemetry cache for reset node {}: {}", cleanNodeId, e.getMessage());
+            }
+        }
+
+        // 4. Update farmland operational status if field association was cleared
+        if (farmlandValidationService != null && fieldId != null) {
+            try {
+                farmlandValidationService.updateFarmlandOperationalStatus(fieldId);
+            } catch (Exception ex) {
+                log.warn("Could not update operational status for field {}: {}", fieldId, ex.getMessage());
+            }
+        }
+
+        // 5. Audit Log
+        auditLogRepository.save(SystemAuditLog.builder()
+                .eventType("NODE_PAIRING_RESET")
+                .actor(effectiveActor)
+                .entityType("EdgeNode")
+                .entityId(cleanNodeId)
+                .previousState(previousState)
+                .resultingState("RESET_REVOKED")
+                .payloadJson(String.format("{\"nodeId\":\"%s\",\"action\":\"PAIRING_RESET\",\"reason\":\"%s\",\"by\":\"%s\"}",
+                        cleanNodeId, reason, effectiveActor))
+                .createdAt(now)
+                .build());
+
+        // 6. Broadcast real-time events to all connected clients
+        try {
+            systemEventPublisher.publishPairingRequestUpdated(cleanNodeId, "REVOKED");
+            systemEventPublisher.publishNodeStatusChanged(cleanNodeId, fieldId, previousState, "UNREGISTERED");
+        } catch (Exception e) {
+            log.warn("Failed to broadcast reset event for node {}: {}", cleanNodeId, e.getMessage());
+        }
+
+        return true;
     }
 
     private PairingRequestResponse toPairingResponse(NodePairingRequest req) {

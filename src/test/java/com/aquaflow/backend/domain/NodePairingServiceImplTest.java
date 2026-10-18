@@ -409,4 +409,63 @@ class NodePairingServiceImplTest {
         assertEquals(PairingStatus.APPROVED, response.getPairingStatus());
         assertFalse(response.isExpired());
     }
+
+    @Test
+    @DisplayName("Reset single node pairing revokes pairing and clears state to UNREGISTERED")
+    void testResetNodePairing_SingleNode() {
+        EdgeNode node = EdgeNode.builder()
+                .id(501L)
+                .nodeId("NODE-RESET-01")
+                .lifecycleState(NodeLifecycleState.ACTIVE)
+                .build();
+
+        when(edgeNodeRepository.findByNodeId("NODE-RESET-01")).thenReturn(Optional.of(node));
+        when(pairingRequestRepository.findAll()).thenReturn(List.of(
+                NodePairingRequest.builder()
+                        .id(901L)
+                        .nodeId("NODE-RESET-01")
+                        .pairingStatus(PairingStatus.APPROVED)
+                        .build()
+        ));
+
+        com.aquaflow.backend.dto.response.NodePairingResetResponse response =
+                nodePairingService.resetNodePairing("NODE-RESET-01", "Manual administrative reset", "Gladwin");
+
+        assertNotNull(response);
+        assertEquals(1, response.getTotalRequested());
+        assertEquals(1, response.getSucceededCount());
+        assertEquals(0, response.getFailedCount());
+        assertTrue(response.getResetNodeIds().contains("NODE-RESET-01"));
+
+        assertEquals(NodeLifecycleState.UNREGISTERED, node.getLifecycleState());
+        verify(edgeNodeRepository).save(node);
+        verify(pairingRequestRepository).save(any(NodePairingRequest.class));
+        verify(systemEventPublisher).publishPairingRequestUpdated("NODE-RESET-01", "REVOKED");
+    }
+
+    @Test
+    @DisplayName("Bulk reset handles multiple nodes with accurate success and failure tracking")
+    void testResetPairing_Bulk() {
+        EdgeNode node1 = EdgeNode.builder().id(601L).nodeId("NODE-01").lifecycleState(NodeLifecycleState.ACTIVE).build();
+        EdgeNode node2 = EdgeNode.builder().id(602L).nodeId("NODE-02").lifecycleState(NodeLifecycleState.COMMISSIONED).build();
+
+        when(edgeNodeRepository.findByNodeId("NODE-01")).thenReturn(Optional.of(node1));
+        when(edgeNodeRepository.findByNodeId("NODE-02")).thenReturn(Optional.of(node2));
+        when(pairingRequestRepository.findAll()).thenReturn(Collections.emptyList());
+
+        com.aquaflow.backend.dto.request.NodePairingResetRequest req =
+                com.aquaflow.backend.dto.request.NodePairingResetRequest.builder()
+                        .nodeIds(List.of("NODE-01", "NODE-02", ""))
+                        .reason("Network re-commissioning")
+                        .build();
+
+        com.aquaflow.backend.dto.response.NodePairingResetResponse response =
+                nodePairingService.resetPairing(req, "Gladwin");
+
+        assertNotNull(response);
+        assertEquals(2, response.getTotalRequested());
+        assertEquals(2, response.getSucceededCount());
+        assertEquals(0, response.getFailedCount());
+        assertEquals(List.of("NODE-01", "NODE-02"), response.getResetNodeIds());
+    }
 }

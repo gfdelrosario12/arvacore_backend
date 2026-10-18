@@ -25,6 +25,24 @@ public class FieldServiceImpl implements FieldService {
 
     private final FieldRepository fieldRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.aquaflow.backend.persistence.MonitoringZoneRepository monitoringZoneRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.aquaflow.backend.persistence.EdgeNodeRepository edgeNodeRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.aquaflow.backend.persistence.MonitoringPointRepository monitoringPointRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.aquaflow.backend.persistence.NodeAssignmentHistoryRepository nodeAssignmentHistoryRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.aquaflow.backend.persistence.SystemAuditLogRepository auditLogRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.aquaflow.backend.infrastructure.event.SystemEventPublisher systemEventPublisher;
+
     public FieldServiceImpl(FieldRepository fieldRepository) {
         this.fieldRepository = fieldRepository;
     }
@@ -111,11 +129,82 @@ public class FieldServiceImpl implements FieldService {
 
     @Override
     public void deleteField(Long id) {
-        if (!fieldRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Field not found with id: " + id);
+        Field field = fieldRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Field not found with id: " + id));
+
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+
+        // 1. Reconcile all monitoring zones and assigned edge nodes in this field
+        if (monitoringZoneRepository != null) {
+            List<com.aquaflow.backend.entity.MonitoringZone> zones = monitoringZoneRepository.findByFieldId(id);
+            for (com.aquaflow.backend.entity.MonitoringZone zone : zones) {
+                if (edgeNodeRepository != null) {
+                    List<com.aquaflow.backend.entity.EdgeNode> nodes = edgeNodeRepository.findByMonitoringZoneId(zone.getId());
+                    for (com.aquaflow.backend.entity.EdgeNode node : nodes) {
+                        node.setMonitoringZone(null);
+                        edgeNodeRepository.save(node);
+
+                        if (nodeAssignmentHistoryRepository != null) {
+                            try {
+                                var activeHist = nodeAssignmentHistoryRepository.findActiveAssignment(node.getId());
+                                activeHist.ifPresent(h -> {
+                                    h.setUnassignedAt(now);
+                                    h.setReason("Field deleted: " + field.getName());
+                                    nodeAssignmentHistoryRepository.save(h);
+                                });
+                            } catch (Exception ex) {
+                                log.warn("Error reconciling assignment history for node {}: {}", node.getNodeId(), ex.getMessage());
+                            }
+                        }
+
+                        if (systemEventPublisher != null) {
+                            try {
+                                systemEventPublisher.publishNodeStatusChanged(node.getNodeId(), null, "ACTIVE", "ACTIVE");
+                            } catch (Exception ex) {
+                                log.warn("Error broadcasting node detachment for node {}: {}", node.getNodeId(), ex.getMessage());
+                            }
+                        }
+                    }
+                }
+
+                if (monitoringPointRepository != null) {
+                    try {
+                        List<com.aquaflow.backend.entity.MonitoringPoint> points = monitoringPointRepository.findByMonitoringZoneId(zone.getId());
+                        if (points != null && !points.isEmpty()) {
+                            points.forEach(p -> p.setEdgeNode(null));
+                            monitoringPointRepository.deleteAll(points);
+                        }
+                    } catch (Exception ex) {
+                        log.warn("Error cleaning monitoring points for zone {}: {}", zone.getId(), ex.getMessage());
+                    }
+                }
+
+                // Delete the monitoring zone
+                monitoringZoneRepository.delete(zone);
+            }
         }
-        fieldRepository.deleteById(id);
-        log.info("Field deleted with id: {}", id);
+
+        // 2. Delete the field
+        fieldRepository.delete(field);
+        log.info("Field '{}' (id: {}) successfully deleted and dependent nodes unassigned", field.getName(), id);
+
+        // 3. Audit Log
+        if (auditLogRepository != null) {
+            try {
+                auditLogRepository.save(com.aquaflow.backend.entity.SystemAuditLog.builder()
+                        .eventType("FIELD_DELETED")
+                        .actor("ARVALINK_OPERATOR")
+                        .entityType("Field")
+                        .entityId(String.valueOf(id))
+                        .previousState("ACTIVE")
+                        .resultingState("DELETED")
+                        .payloadJson(String.format("{\"fieldId\":%d,\"name\":\"%s\"}", id, field.getName()))
+                        .createdAt(now)
+                        .build());
+            } catch (Exception ex) {
+                log.warn("Failed to write audit log for deleted field {}: {}", id, ex.getMessage());
+            }
+        }
     }
 }
 

@@ -119,7 +119,10 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
         List<EdgeNode> nodes = edgeNodeRepository.findAll();
 
         return nodes.stream()
-                .filter(n -> lifecycleState == null || n.getLifecycleState() == lifecycleState)
+                .filter(n -> lifecycleState != null
+                        ? n.getLifecycleState() == lifecycleState
+                        : (n.getLifecycleState() != NodeLifecycleState.UNREGISTERED &&
+                           n.getLifecycleState() != NodeLifecycleState.DECOMMISSIONED))
                 .filter(n -> healthState == null || n.getHealthState() == healthState)
                 .filter(n -> zoneId == null || (n.getMonitoringZone() != null && Objects.equals(n.getMonitoringZone().getId(), zoneId)))
                 .map(n -> DtoMapper.toEdgeNodeResponse(n, telemetryReadingRepository.findByEdgeNodeIdOrderByTimestampDesc(n.getId())))

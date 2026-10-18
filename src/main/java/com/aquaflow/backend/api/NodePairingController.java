@@ -100,5 +100,14 @@ public class NodePairingController {
                 ? authentication.getName() : "ADMIN";
         return ResponseEntity.ok(nodePairingService.approveAndAssignNode(id, request, actor));
     }
+
+    @PostMapping("/pairing/reset")
+    public ResponseEntity<com.aquaflow.backend.dto.response.NodePairingResetResponse> resetPairing(
+            @RequestBody(required = false) com.aquaflow.backend.dto.request.NodePairingResetRequest request,
+            Authentication authentication) {
+        String actor = (authentication != null && authentication.getName() != null)
+                ? authentication.getName() : "ADMIN";
+        return ResponseEntity.ok(nodePairingService.resetPairing(request, actor));
+    }
 }
 
