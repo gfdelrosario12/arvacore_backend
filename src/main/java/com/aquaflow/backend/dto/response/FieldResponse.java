@@ -16,6 +16,15 @@ public class FieldResponse {
     private String name;
     private String boundaryGeoJson;
     private Double areaHectares;
+    private Double lengthMeters;
+    private Double widthMeters;
+    private Double totalArea;
+    private String areaUnit;
+    private String shapeType;
+    private String operationalStatus;
+    private String description;
+    private String locationAddress;
+    private String ownerUsername;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

@@ -36,20 +36,33 @@ public class ZoneServiceImpl implements ZoneService {
     private final MonitoringZoneRepository monitoringZoneRepository;
     private final EdgeNodeRepository edgeNodeRepository;
     private final ZoneAggregationService zoneAggregationService;
+    private final com.aquaflow.backend.persistence.FieldRepository fieldRepository;
+    private final com.aquaflow.backend.persistence.NodeAssignmentHistoryRepository nodeAssignmentHistoryRepository;
+    private final com.aquaflow.backend.persistence.MonitoringPointRepository monitoringPointRepository;
+    @org.springframework.context.annotation.Lazy
+    private final FarmlandValidationService farmlandValidationService;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ZoneServiceImpl(ZoneRepository zoneRepository,
                            MonitoringZoneRepository monitoringZoneRepository,
                            @org.springframework.beans.factory.annotation.Autowired(required = false) EdgeNodeRepository edgeNodeRepository,
-                           @org.springframework.beans.factory.annotation.Autowired(required = false) ZoneAggregationService zoneAggregationService) {
+                           @org.springframework.beans.factory.annotation.Autowired(required = false) ZoneAggregationService zoneAggregationService,
+                           @org.springframework.beans.factory.annotation.Autowired(required = false) com.aquaflow.backend.persistence.FieldRepository fieldRepository,
+                           @org.springframework.beans.factory.annotation.Autowired(required = false) com.aquaflow.backend.persistence.NodeAssignmentHistoryRepository nodeAssignmentHistoryRepository,
+                           @org.springframework.beans.factory.annotation.Autowired(required = false) com.aquaflow.backend.persistence.MonitoringPointRepository monitoringPointRepository,
+                           @org.springframework.beans.factory.annotation.Autowired(required = false) @org.springframework.context.annotation.Lazy FarmlandValidationService farmlandValidationService) {
         this.zoneRepository = zoneRepository;
         this.monitoringZoneRepository = monitoringZoneRepository;
         this.edgeNodeRepository = edgeNodeRepository;
         this.zoneAggregationService = zoneAggregationService;
+        this.fieldRepository = fieldRepository;
+        this.nodeAssignmentHistoryRepository = nodeAssignmentHistoryRepository;
+        this.monitoringPointRepository = monitoringPointRepository;
+        this.farmlandValidationService = farmlandValidationService;
     }
 
     public ZoneServiceImpl(ZoneRepository zoneRepository, MonitoringZoneRepository monitoringZoneRepository) {
-        this(zoneRepository, monitoringZoneRepository, null, null);
+        this(zoneRepository, monitoringZoneRepository, null, null, null, null, null, null);
     }
 
     @Override
@@ -239,5 +252,454 @@ public class ZoneServiceImpl implements ZoneService {
         return zoneRepository.findByCropType(cropType).stream()
                 .map(DtoMapper::toZoneResponse)
                 .collect(Collectors.toList());
+    }
+
+    private MonitoringZoneResponse enrichZoneResponse(MonitoringZone zone) {
+        MonitoringZoneResponse res = DtoMapper.toMonitoringZoneResponse(zone);
+        if (edgeNodeRepository != null) {
+            List<EdgeNode> nodes = edgeNodeRepository.findByMonitoringZoneId(zone.getId());
+            res.setAssignedNodeCount(nodes.size());
+            res.setAssignedNodeIds(nodes.stream().map(EdgeNode::getNodeId).collect(Collectors.toList()));
+        } else {
+            res.setAssignedNodeCount(0);
+            res.setAssignedNodeIds(Collections.emptyList());
+        }
+        return res;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<MonitoringZoneResponse> getMonitoringZonesByFieldId(Long fieldId) {
+        return monitoringZoneRepository.findByFieldIdAndIsArchivedFalse(fieldId).stream()
+                .map(this::enrichZoneResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public MonitoringZoneResponse createMonitoringZone(Long fieldId, com.aquaflow.backend.dto.request.MonitoringZoneRequest request) {
+        com.aquaflow.backend.entity.Field field = fieldRepository.findById(fieldId)
+                .orElseThrow(() -> new ResourceNotFoundException("Field not found with id: " + fieldId));
+
+        MonitoringZone zone = MonitoringZone.builder()
+                .name(request.getName())
+                .code(request.getCode() != null ? request.getCode() : request.getName().toUpperCase().replaceAll("\\s+", "-"))
+                .field(field)
+                .cropType(request.getCropType() != null ? request.getCropType() : "Rice - Inbred NSIC Rc222")
+                .targetMoisturePercentage(request.getTargetMoisturePercentage() != null ? request.getTargetMoisturePercentage() : 70.0)
+                .waterAllocationLimitLiters(request.getWaterAllocationLimitLiters() != null ? request.getWaterAllocationLimitLiters() : 1000.0)
+                .areaType(request.getAreaType() != null ? request.getAreaType() : "CUSTOM")
+                .lengthMeters(request.getLengthMeters())
+                .widthMeters(request.getWidthMeters())
+                .areaSize(request.getAreaSize())
+                .areaUnit(request.getAreaUnit() != null ? request.getAreaUnit() : "HECTARES")
+                .relativeX(request.getRelativeX() != null ? request.getRelativeX() : 0.0)
+                .relativeY(request.getRelativeY() != null ? request.getRelativeY() : 0.0)
+                .relativeWidth(request.getRelativeWidth() != null ? request.getRelativeWidth() : 1.0)
+                .relativeHeight(request.getRelativeHeight() != null ? request.getRelativeHeight() : 1.0)
+                .boundaryGeoJson(request.getBoundaryGeoJson())
+                .operationalStatus(request.getOperationalStatus() != null ? request.getOperationalStatus() : "READY")
+                .isArchived(false)
+                .build();
+
+        MonitoringZone saved = monitoringZoneRepository.save(zone);
+        if (farmlandValidationService != null) {
+            try {
+                farmlandValidationService.updateFarmlandOperationalStatus(fieldId);
+            } catch (Exception ex) {
+                log.warn("Could not update operational status for field {}: {}", fieldId, ex.getMessage());
+            }
+        }
+        return enrichZoneResponse(saved);
+    }
+
+    @Override
+    public MonitoringZoneResponse updateMonitoringZone(Long zoneId, com.aquaflow.backend.dto.request.MonitoringZoneRequest request) {
+        MonitoringZone zone = monitoringZoneRepository.findById(zoneId)
+                .orElseThrow(() -> new ResourceNotFoundException("Monitoring zone not found with id: " + zoneId));
+
+        if (request.getName() != null && !request.getName().isBlank()) zone.setName(request.getName());
+        if (request.getCode() != null && !request.getCode().isBlank()) zone.setCode(request.getCode());
+        if (request.getAreaType() != null) zone.setAreaType(request.getAreaType());
+        if (request.getCropType() != null) zone.setCropType(request.getCropType());
+        if (request.getTargetMoisturePercentage() != null) zone.setTargetMoisturePercentage(request.getTargetMoisturePercentage());
+        if (request.getWaterAllocationLimitLiters() != null) zone.setWaterAllocationLimitLiters(request.getWaterAllocationLimitLiters());
+        if (request.getLengthMeters() != null) zone.setLengthMeters(request.getLengthMeters());
+        if (request.getWidthMeters() != null) zone.setWidthMeters(request.getWidthMeters());
+        if (request.getAreaSize() != null) zone.setAreaSize(request.getAreaSize());
+        if (request.getAreaUnit() != null) zone.setAreaUnit(request.getAreaUnit());
+        if (request.getRelativeX() != null) zone.setRelativeX(request.getRelativeX());
+        if (request.getRelativeY() != null) zone.setRelativeY(request.getRelativeY());
+        if (request.getRelativeWidth() != null) zone.setRelativeWidth(request.getRelativeWidth());
+        if (request.getRelativeHeight() != null) zone.setRelativeHeight(request.getRelativeHeight());
+        if (request.getBoundaryGeoJson() != null) zone.setBoundaryGeoJson(request.getBoundaryGeoJson());
+        if (request.getOperationalStatus() != null) zone.setOperationalStatus(request.getOperationalStatus());
+
+        MonitoringZone saved = monitoringZoneRepository.save(zone);
+        if (farmlandValidationService != null && saved.getField() != null) {
+            try {
+                farmlandValidationService.updateFarmlandOperationalStatus(saved.getField().getId());
+            } catch (Exception ex) {
+                log.warn("Could not update operational status for field {}: {}", saved.getField().getId(), ex.getMessage());
+            }
+        }
+        return enrichZoneResponse(saved);
+    }
+
+    @Override
+    public void archiveMonitoringZone(Long zoneId) {
+        MonitoringZone zone = monitoringZoneRepository.findById(zoneId)
+                .orElseThrow(() -> new ResourceNotFoundException("Monitoring zone not found with id: " + zoneId));
+
+        // Unassign any nodes
+        if (edgeNodeRepository != null) {
+            List<EdgeNode> nodes = edgeNodeRepository.findByMonitoringZoneId(zoneId);
+            for (EdgeNode n : nodes) {
+                n.setMonitoringZone(null);
+                edgeNodeRepository.save(n);
+                if (nodeAssignmentHistoryRepository != null) {
+                    var act = nodeAssignmentHistoryRepository.findActiveAssignment(n.getId());
+                    act.ifPresent(h -> {
+                        h.setUnassignedAt(java.time.LocalDateTime.now());
+                        nodeAssignmentHistoryRepository.save(h);
+                    });
+                }
+            }
+        }
+
+        zone.setIsArchived(true);
+        zone.setOperationalStatus("ARCHIVED");
+        monitoringZoneRepository.save(zone);
+
+        if (farmlandValidationService != null && zone.getField() != null) {
+            try {
+                farmlandValidationService.updateFarmlandOperationalStatus(zone.getField().getId());
+            } catch (Exception ex) {
+                log.warn("Could not update operational status for field {}: {}", zone.getField().getId(), ex.getMessage());
+            }
+        }
+    }
+
+    @Override
+    public List<MonitoringZoneResponse> splitMonitoringZone(Long zoneId, com.aquaflow.backend.dto.request.SplitZoneRequest request) {
+        MonitoringZone zone = monitoringZoneRepository.findById(zoneId)
+                .orElseThrow(() -> new ResourceNotFoundException("Monitoring zone not found with id: " + zoneId));
+
+        if (Boolean.TRUE.equals(zone.getIsArchived())) {
+            throw new ValidationException("Cannot split an already archived zone");
+        }
+
+        double ratio = (request.getRatio() != null && request.getRatio() > 0.05 && request.getRatio() < 0.95)
+                ? request.getRatio() : 0.5;
+        String orientation = request.getOrientation() != null ? request.getOrientation().toUpperCase() : "VERTICAL";
+
+        double origX = zone.getRelativeX() != null ? zone.getRelativeX() : 0.0;
+        double origY = zone.getRelativeY() != null ? zone.getRelativeY() : 0.0;
+        double origW = zone.getRelativeWidth() != null ? zone.getRelativeWidth() : 1.0;
+        double origH = zone.getRelativeHeight() != null ? zone.getRelativeHeight() : 1.0;
+
+        double origLen = zone.getLengthMeters() != null ? zone.getLengthMeters() : 50.0;
+        double origWid = zone.getWidthMeters() != null ? zone.getWidthMeters() : 50.0;
+        double origArea = zone.getAreaSize() != null ? zone.getAreaSize() : 0.25;
+
+        // Part 1
+        double p1X = origX, p1Y = origY, p1W = origW, p1H = origH;
+        double p1Len = origLen, p1Wid = origWid;
+        // Part 2
+        double p2X = origX, p2Y = origY, p2W = origW, p2H = origH;
+        double p2Len = origLen, p2Wid = origWid;
+
+        if ("HORIZONTAL".equals(orientation)) {
+            p1H = origH * ratio;
+            p1Wid = origWid * ratio;
+            p2Y = origY + p1H;
+            p2H = origH * (1.0 - ratio);
+            p2Wid = origWid * (1.0 - ratio);
+        } else {
+            p1W = origW * ratio;
+            p1Len = origLen * ratio;
+            p2X = origX + p1W;
+            p2W = origW * (1.0 - ratio);
+            p2Len = origLen * (1.0 - ratio);
+        }
+
+        String codePrefix = zone.getCode() != null ? zone.getCode() : "Z";
+        String p1Name = request.getPart1Name() != null ? request.getPart1Name() : zone.getName() + " (North/West)";
+        String p1Code = request.getPart1Code() != null ? request.getPart1Code() : codePrefix + "-A";
+        String p2Name = request.getPart2Name() != null ? request.getPart2Name() : zone.getName() + " (South/East)";
+        String p2Code = request.getPart2Code() != null ? request.getPart2Code() : codePrefix + "-B";
+
+        MonitoringZone part1 = MonitoringZone.builder()
+                .name(p1Name)
+                .code(p1Code)
+                .field(zone.getField())
+                .areaType(zone.getAreaType())
+                .cropType(zone.getCropType())
+                .targetMoisturePercentage(zone.getTargetMoisturePercentage())
+                .waterAllocationLimitLiters(zone.getWaterAllocationLimitLiters() != null ? zone.getWaterAllocationLimitLiters() * ratio : null)
+                .relativeX(p1X)
+                .relativeY(p1Y)
+                .relativeWidth(p1W)
+                .relativeHeight(p1H)
+                .lengthMeters(p1Len)
+                .widthMeters(p1Wid)
+                .areaSize(origArea * ratio)
+                .areaUnit(zone.getAreaUnit())
+                .operationalStatus("READY")
+                .isArchived(false)
+                .build();
+
+        MonitoringZone part2 = MonitoringZone.builder()
+                .name(p2Name)
+                .code(p2Code)
+                .field(zone.getField())
+                .areaType(zone.getAreaType())
+                .cropType(zone.getCropType())
+                .targetMoisturePercentage(zone.getTargetMoisturePercentage())
+                .waterAllocationLimitLiters(zone.getWaterAllocationLimitLiters() != null ? zone.getWaterAllocationLimitLiters() * (1.0 - ratio) : null)
+                .relativeX(p2X)
+                .relativeY(p2Y)
+                .relativeWidth(p2W)
+                .relativeHeight(p2H)
+                .lengthMeters(p2Len)
+                .widthMeters(p2Wid)
+                .areaSize(origArea * (1.0 - ratio))
+                .areaUnit(zone.getAreaUnit())
+                .operationalStatus("READY")
+                .isArchived(false)
+                .build();
+
+        MonitoringZone savedPart1 = monitoringZoneRepository.save(part1);
+        MonitoringZone savedPart2 = monitoringZoneRepository.save(part2);
+
+        // Reassign nodes from original zone to part 1
+        if (edgeNodeRepository != null) {
+            List<EdgeNode> existingNodes = edgeNodeRepository.findByMonitoringZoneId(zoneId);
+            for (EdgeNode n : existingNodes) {
+                n.setMonitoringZone(savedPart1);
+                edgeNodeRepository.save(n);
+                if (nodeAssignmentHistoryRepository != null) {
+                    var act = nodeAssignmentHistoryRepository.findActiveAssignment(n.getId());
+                    act.ifPresent(h -> {
+                        h.setUnassignedAt(java.time.LocalDateTime.now());
+                        nodeAssignmentHistoryRepository.save(h);
+                    });
+                    com.aquaflow.backend.entity.NodeAssignmentHistory newH = com.aquaflow.backend.entity.NodeAssignmentHistory.builder()
+                            .edgeNodeId(n.getId())
+                            .nodeId(n.getNodeId())
+                            .fieldId(zone.getField() != null ? zone.getField().getId() : null)
+                            .monitoringZoneId(savedPart1.getId())
+                            .assignedAt(java.time.LocalDateTime.now())
+                            .assignedBy("SYSTEM_SPLIT")
+                            .reason("Zone split automatic reassignment")
+                            .build();
+                    nodeAssignmentHistoryRepository.save(newH);
+                }
+            }
+        }
+
+        // Archive original zone
+        zone.setIsArchived(true);
+        zone.setOperationalStatus("ARCHIVED");
+        monitoringZoneRepository.save(zone);
+
+        if (farmlandValidationService != null && zone.getField() != null) {
+            try {
+                farmlandValidationService.updateFarmlandOperationalStatus(zone.getField().getId());
+            } catch (Exception ex) {
+                log.warn("Could not update operational status for field {}: {}", zone.getField().getId(), ex.getMessage());
+            }
+        }
+
+        List<MonitoringZoneResponse> results = new ArrayList<>();
+        results.add(enrichZoneResponse(savedPart1));
+        results.add(enrichZoneResponse(savedPart2));
+        return results;
+    }
+
+    @Override
+    public MonitoringZoneResponse mergeMonitoringZones(Long fieldId, com.aquaflow.backend.dto.request.MergeZonesRequest request) {
+        if (request.getZoneIds() == null || request.getZoneIds().size() < 2) {
+            throw new ValidationException("At least two zone IDs are required to perform a merge");
+        }
+
+        com.aquaflow.backend.entity.Field field = fieldRepository.findById(fieldId)
+                .orElseThrow(() -> new ResourceNotFoundException("Field not found with id: " + fieldId));
+
+        List<MonitoringZone> zonesToMerge = monitoringZoneRepository.findAllById(request.getZoneIds());
+        if (zonesToMerge.size() < 2) {
+            throw new ValidationException("Could not find all designated zones for merging");
+        }
+
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE;
+        double maxX = Double.MIN_VALUE, maxY = Double.MIN_VALUE;
+        double totalArea = 0.0;
+        double totalWater = 0.0;
+
+        for (MonitoringZone z : zonesToMerge) {
+            if (Boolean.TRUE.equals(z.getIsArchived())) {
+                throw new ValidationException("Zone " + z.getName() + " is already archived");
+            }
+            double zX = z.getRelativeX() != null ? z.getRelativeX() : 0.0;
+            double zY = z.getRelativeY() != null ? z.getRelativeY() : 0.0;
+            double zW = z.getRelativeWidth() != null ? z.getRelativeWidth() : 1.0;
+            double zH = z.getRelativeHeight() != null ? z.getRelativeHeight() : 1.0;
+
+            if (zX < minX) minX = zX;
+            if (zY < minY) minY = zY;
+            if ((zX + zW) > maxX) maxX = (zX + zW);
+            if ((zY + zH) > maxY) maxY = (zY + zH);
+
+            if (z.getAreaSize() != null) totalArea += z.getAreaSize();
+            if (z.getWaterAllocationLimitLiters() != null) totalWater += z.getWaterAllocationLimitLiters();
+        }
+
+        String mergedName = request.getMergedName() != null ? request.getMergedName() : "Merged Section (" + zonesToMerge.size() + " zones)";
+        String mergedCode = request.getMergedCode() != null ? request.getMergedCode() : "M-" + (System.currentTimeMillis() % 10000);
+
+        MonitoringZone merged = MonitoringZone.builder()
+                .name(mergedName)
+                .code(mergedCode)
+                .field(field)
+                .areaType(request.getAreaType() != null ? request.getAreaType() : "SECTION")
+                .cropType(request.getCropType() != null ? request.getCropType() : zonesToMerge.get(0).getCropType())
+                .targetMoisturePercentage(zonesToMerge.get(0).getTargetMoisturePercentage())
+                .waterAllocationLimitLiters(totalWater > 0 ? totalWater : null)
+                .relativeX(minX != Double.MAX_VALUE ? minX : 0.0)
+                .relativeY(minY != Double.MAX_VALUE ? minY : 0.0)
+                .relativeWidth(maxX > minX ? (maxX - minX) : 1.0)
+                .relativeHeight(maxY > minY ? (maxY - minY) : 1.0)
+                .areaSize(totalArea > 0 ? totalArea : null)
+                .areaUnit(zonesToMerge.get(0).getAreaUnit())
+                .operationalStatus("READY")
+                .isArchived(false)
+                .build();
+
+        MonitoringZone savedMerged = monitoringZoneRepository.save(merged);
+
+        // Reassign all nodes from old zones to merged zone
+        if (edgeNodeRepository != null) {
+            for (MonitoringZone z : zonesToMerge) {
+                List<EdgeNode> nodes = edgeNodeRepository.findByMonitoringZoneId(z.getId());
+                for (EdgeNode n : nodes) {
+                    n.setMonitoringZone(savedMerged);
+                    edgeNodeRepository.save(n);
+                    if (nodeAssignmentHistoryRepository != null) {
+                        var act = nodeAssignmentHistoryRepository.findActiveAssignment(n.getId());
+                        act.ifPresent(h -> {
+                            h.setUnassignedAt(java.time.LocalDateTime.now());
+                            nodeAssignmentHistoryRepository.save(h);
+                        });
+                        com.aquaflow.backend.entity.NodeAssignmentHistory newH = com.aquaflow.backend.entity.NodeAssignmentHistory.builder()
+                                .edgeNodeId(n.getId())
+                                .nodeId(n.getNodeId())
+                                .fieldId(field.getId())
+                                .monitoringZoneId(savedMerged.getId())
+                                .assignedAt(java.time.LocalDateTime.now())
+                                .assignedBy("SYSTEM_MERGE")
+                                .reason("Zone merge automatic reassignment")
+                                .build();
+                        nodeAssignmentHistoryRepository.save(newH);
+                    }
+                }
+            }
+        }
+
+        // Archive constituent zones
+        for (MonitoringZone z : zonesToMerge) {
+            z.setIsArchived(true);
+            z.setOperationalStatus("ARCHIVED");
+            monitoringZoneRepository.save(z);
+        }
+
+        if (farmlandValidationService != null) {
+            try {
+                farmlandValidationService.updateFarmlandOperationalStatus(fieldId);
+            } catch (Exception ex) {
+                log.warn("Could not update operational status for field {}: {}", fieldId, ex.getMessage());
+            }
+        }
+
+        return enrichZoneResponse(savedMerged);
+    }
+
+    @Override
+    public com.aquaflow.backend.dto.response.FieldResponse updateFarmlandLayout(Long fieldId, com.aquaflow.backend.dto.request.FarmlandLayoutDto layout) {
+        com.aquaflow.backend.entity.Field field = fieldRepository.findById(fieldId)
+                .orElseThrow(() -> new ResourceNotFoundException("Field not found with id: " + fieldId));
+
+        if (layout.getName() != null && !layout.getName().isBlank()) field.setName(layout.getName());
+        if (layout.getLengthMeters() != null) field.setLengthMeters(layout.getLengthMeters());
+        if (layout.getWidthMeters() != null) field.setWidthMeters(layout.getWidthMeters());
+        if (layout.getTotalArea() != null) {
+            field.setTotalArea(layout.getTotalArea());
+            field.setAreaHectares(layout.getTotalArea());
+        }
+        if (layout.getAreaUnit() != null) field.setAreaUnit(layout.getAreaUnit());
+        if (layout.getShapeType() != null) field.setShapeType(layout.getShapeType());
+        if (layout.getDescription() != null) field.setDescription(layout.getDescription());
+        if (layout.getLocationAddress() != null) field.setLocationAddress(layout.getLocationAddress());
+
+        com.aquaflow.backend.entity.Field savedField = fieldRepository.save(field);
+
+        if (layout.getZones() != null && !layout.getZones().isEmpty()) {
+            for (com.aquaflow.backend.dto.request.MonitoringZoneRequest zReq : layout.getZones()) {
+                if (zReq.getCode() != null) {
+                    var existingOpt = monitoringZoneRepository.findByFieldIdAndCode(fieldId, zReq.getCode());
+                    if (existingOpt.isPresent()) {
+                        MonitoringZone z = existingOpt.get();
+                        if (zReq.getName() != null) z.setName(zReq.getName());
+                        if (zReq.getAreaType() != null) z.setAreaType(zReq.getAreaType());
+                        if (zReq.getRelativeX() != null) z.setRelativeX(zReq.getRelativeX());
+                        if (zReq.getRelativeY() != null) z.setRelativeY(zReq.getRelativeY());
+                        if (zReq.getRelativeWidth() != null) z.setRelativeWidth(zReq.getRelativeWidth());
+                        if (zReq.getRelativeHeight() != null) z.setRelativeHeight(zReq.getRelativeHeight());
+                        if (zReq.getAreaSize() != null) z.setAreaSize(zReq.getAreaSize());
+                        if (zReq.getLengthMeters() != null) z.setLengthMeters(zReq.getLengthMeters());
+                        if (zReq.getWidthMeters() != null) z.setWidthMeters(zReq.getWidthMeters());
+                        if (zReq.getCropType() != null) z.setCropType(zReq.getCropType());
+                        monitoringZoneRepository.save(z);
+                        continue;
+                    }
+                }
+                // Create as new zone
+                createMonitoringZone(fieldId, zReq);
+            }
+        }
+
+        if (farmlandValidationService != null) {
+            try {
+                farmlandValidationService.updateFarmlandOperationalStatus(fieldId);
+            } catch (Exception ex) {
+                log.warn("Could not update operational status for field {}: {}", fieldId, ex.getMessage());
+            }
+        }
+
+        return DtoMapper.toFieldResponse(fieldRepository.findById(fieldId).get());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<com.aquaflow.backend.dto.response.NodeAssignmentHistoryResponse> getFieldAssignmentHistory(Long fieldId) {
+        if (nodeAssignmentHistoryRepository == null) return Collections.emptyList();
+        com.aquaflow.backend.entity.Field field = fieldRepository.findById(fieldId).orElse(null);
+        String fieldName = field != null ? field.getName() : null;
+
+        List<com.aquaflow.backend.entity.NodeAssignmentHistory> list =
+                nodeAssignmentHistoryRepository.findByFieldIdOrderByAssignedAtDesc(fieldId);
+
+        List<com.aquaflow.backend.dto.response.NodeAssignmentHistoryResponse> responses = new ArrayList<>();
+        for (com.aquaflow.backend.entity.NodeAssignmentHistory h : list) {
+            String zoneName = null;
+            String zoneCode = null;
+            if (h.getMonitoringZoneId() != null) {
+                var z = monitoringZoneRepository.findById(h.getMonitoringZoneId());
+                if (z.isPresent()) {
+                    zoneName = z.get().getName();
+                    zoneCode = z.get().getCode();
+                }
+            }
+            responses.add(DtoMapper.toNodeAssignmentHistoryResponse(h, fieldName, zoneName, zoneCode));
+        }
+        return responses;
     }
 }

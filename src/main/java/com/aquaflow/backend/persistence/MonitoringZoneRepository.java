@@ -10,7 +10,10 @@ import java.util.Optional;
 
 public interface MonitoringZoneRepository extends JpaRepository<MonitoringZone, Long> {
     List<MonitoringZone> findByFieldId(Long fieldId);
+    List<MonitoringZone> findByFieldIdAndIsArchivedFalse(Long fieldId);
     Page<MonitoringZone> findByFieldId(Long fieldId, Pageable pageable);
     Optional<MonitoringZone> findByName(String name);
+    Optional<MonitoringZone> findByFieldIdAndCode(Long fieldId, String code);
+    List<MonitoringZone> findByIsArchivedFalse();
 }
 

@@ -43,5 +43,9 @@ public interface EdgeNodeRegistryService {
     void validateNodeActiveForOperations(Long id);
 
     void validateNodeActiveForOperations(String nodeId);
+
+    List<NodeAssignmentHistoryResponse> getNodeAssignmentHistory(Long id);
+
+    List<NodeAssignmentHistoryResponse> getNodeAssignmentHistory(String nodeId);
 }
 

@@ -37,10 +37,22 @@ public class FieldServiceImpl implements FieldService {
             throw new ValidationException("Field with name '" + request.getName() + "' already exists", "FIELD_DUPLICATE");
         }
 
+        Double totalArea = request.getTotalArea() != null ? request.getTotalArea() : request.getAreaHectares();
+        Double areaHectares = request.getAreaHectares() != null ? request.getAreaHectares() : totalArea;
+
         Field field = Field.builder()
                 .name(request.getName())
                 .boundaryGeoJson(request.getBoundaryGeoJson())
-                .areaHectares(request.getAreaHectares())
+                .areaHectares(areaHectares)
+                .lengthMeters(request.getLengthMeters())
+                .widthMeters(request.getWidthMeters())
+                .totalArea(totalArea)
+                .areaUnit(request.getAreaUnit() != null ? request.getAreaUnit() : "HECTARES")
+                .shapeType(request.getShapeType() != null ? request.getShapeType() : "RECTANGULAR")
+                .operationalStatus(request.getOperationalStatus() != null ? request.getOperationalStatus() : "DRAFT")
+                .description(request.getDescription())
+                .locationAddress(request.getLocationAddress())
+                .ownerUsername(request.getOwnerUsername())
                 .build();
 
         Field saved = fieldRepository.save(field);
@@ -81,7 +93,16 @@ public class FieldServiceImpl implements FieldService {
 
         field.setName(request.getName());
         field.setBoundaryGeoJson(request.getBoundaryGeoJson());
-        field.setAreaHectares(request.getAreaHectares());
+        if (request.getAreaHectares() != null) field.setAreaHectares(request.getAreaHectares());
+        if (request.getTotalArea() != null) field.setTotalArea(request.getTotalArea());
+        if (request.getLengthMeters() != null) field.setLengthMeters(request.getLengthMeters());
+        if (request.getWidthMeters() != null) field.setWidthMeters(request.getWidthMeters());
+        if (request.getAreaUnit() != null) field.setAreaUnit(request.getAreaUnit());
+        if (request.getShapeType() != null) field.setShapeType(request.getShapeType());
+        if (request.getOperationalStatus() != null) field.setOperationalStatus(request.getOperationalStatus());
+        if (request.getDescription() != null) field.setDescription(request.getDescription());
+        if (request.getLocationAddress() != null) field.setLocationAddress(request.getLocationAddress());
+        if (request.getOwnerUsername() != null) field.setOwnerUsername(request.getOwnerUsername());
 
         Field saved = fieldRepository.save(field);
         log.info("Field updated with id: {}", id);

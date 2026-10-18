@@ -21,7 +21,6 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 @Transactional
 @Slf4j
 public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
@@ -32,6 +31,42 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
     private final TelemetryReadingRepository telemetryReadingRepository;
     private final AutoIrrigationConfigRepository autoIrrigationConfigRepository;
     private final IrrigationAuditLogRepository auditLogRepository;
+    private final NodeAssignmentHistoryRepository nodeAssignmentHistoryRepository;
+    private final FieldRepository fieldRepository;
+    private final FarmlandValidationService farmlandValidationService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public EdgeNodeRegistryServiceImpl(
+            EdgeNodeRepository edgeNodeRepository,
+            MonitoringZoneRepository monitoringZoneRepository,
+            MonitoringPointRepository monitoringPointRepository,
+            TelemetryReadingRepository telemetryReadingRepository,
+            AutoIrrigationConfigRepository autoIrrigationConfigRepository,
+            IrrigationAuditLogRepository auditLogRepository,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) NodeAssignmentHistoryRepository nodeAssignmentHistoryRepository,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) FieldRepository fieldRepository,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) @org.springframework.context.annotation.Lazy FarmlandValidationService farmlandValidationService) {
+        this.edgeNodeRepository = edgeNodeRepository;
+        this.monitoringZoneRepository = monitoringZoneRepository;
+        this.monitoringPointRepository = monitoringPointRepository;
+        this.telemetryReadingRepository = telemetryReadingRepository;
+        this.autoIrrigationConfigRepository = autoIrrigationConfigRepository;
+        this.auditLogRepository = auditLogRepository;
+        this.nodeAssignmentHistoryRepository = nodeAssignmentHistoryRepository;
+        this.fieldRepository = fieldRepository;
+        this.farmlandValidationService = farmlandValidationService;
+    }
+
+    public EdgeNodeRegistryServiceImpl(
+            EdgeNodeRepository edgeNodeRepository,
+            MonitoringZoneRepository monitoringZoneRepository,
+            MonitoringPointRepository monitoringPointRepository,
+            TelemetryReadingRepository telemetryReadingRepository,
+            AutoIrrigationConfigRepository autoIrrigationConfigRepository,
+            IrrigationAuditLogRepository auditLogRepository) {
+        this(edgeNodeRepository, monitoringZoneRepository, monitoringPointRepository, telemetryReadingRepository,
+             autoIrrigationConfigRepository, auditLogRepository, null, null, null);
+    }
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
@@ -154,11 +189,31 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
     }
 
     private EdgeNodeResponse doAssignNodeToField(EdgeNode node, AssignNodeFieldRequest request) {
+        if (node.getLifecycleState() == NodeLifecycleState.DECOMMISSIONED ||
+            node.getLifecycleState() == NodeLifecycleState.REPLACED ||
+            node.getLifecycleState() == NodeLifecycleState.UNREGISTERED) {
+            throw new ValidationException("Cannot assign node in inactive state: " + node.getLifecycleState());
+        }
+
         Long previousZoneId = node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null;
+        Long previousFieldId = (node.getMonitoringZone() != null && node.getMonitoringZone().getField() != null)
+                ? node.getMonitoringZone().getField().getId() : null;
+
+        // Close any active assignment history record for this node
+        var activeHistoryOpt = nodeAssignmentHistoryRepository.findActiveAssignment(node.getId());
+        if (activeHistoryOpt.isPresent()) {
+            NodeAssignmentHistory active = activeHistoryOpt.get();
+            active.setUnassignedAt(LocalDateTime.now());
+            nodeAssignmentHistoryRepository.save(active);
+        }
 
         if (request.getMonitoringZoneId() != null) {
             MonitoringZone zone = monitoringZoneRepository.findById(request.getMonitoringZoneId())
                     .orElseThrow(() -> new ResourceNotFoundException("Monitoring zone not found: " + request.getMonitoringZoneId()));
+
+            if (Boolean.TRUE.equals(zone.getIsArchived())) {
+                throw new ValidationException("Cannot assign node to an archived monitoring zone: " + zone.getName());
+            }
 
             if (request.getFieldId() != null && zone.getField() != null) {
                 if (!request.getFieldId().equals(zone.getField().getId())) {
@@ -170,17 +225,56 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
             node.setMonitoringZone(zone);
             EdgeNode saved = edgeNodeRepository.save(node);
 
+            // Record assignment in history
+            Long targetFieldId = zone.getField() != null ? zone.getField().getId() : null;
+            NodeAssignmentHistory history = NodeAssignmentHistory.builder()
+                    .edgeNodeId(saved.getId())
+                    .nodeId(saved.getNodeId())
+                    .fieldId(targetFieldId)
+                    .monitoringZoneId(zone.getId())
+                    .assignedAt(LocalDateTime.now())
+                    .assignedBy("ARVALINK_OPERATOR")
+                    .reason("Farmland layout assignment")
+                    .build();
+            nodeAssignmentHistoryRepository.save(history);
+
+            // Ensure a monitoring point exists in this zone for the node
+            List<MonitoringPoint> points = monitoringPointRepository.findByEdgeNodeId(saved.getId());
+            if (points.isEmpty()) {
+                MonitoringPoint point = MonitoringPoint.builder()
+                        .name("MP-" + saved.getNodeId())
+                        .monitoringZone(zone)
+                        .edgeNode(saved)
+                        .primarySensorType(SensorType.SOIL_MOISTURE)
+                        .depthCm(15.0)
+                        .build();
+                monitoringPointRepository.save(point);
+            } else {
+                for (MonitoringPoint p : points) {
+                    p.setMonitoringZone(zone);
+                    monitoringPointRepository.save(p);
+                }
+            }
+
             // Audit log
             IrrigationAuditLog auditLog = IrrigationAuditLog.builder()
                     .eventType("NODE_FIELD_ASSIGNMENT_CHANGED")
-                    .actor("ARVALINK_ADMIN")
+                    .actor("ARVALINK_OPERATOR")
                     .entityType("EdgeNode")
                     .entityId(String.valueOf(node.getId()))
                     .payloadJson(String.format("{\"nodeId\":\"%s\",\"previousZoneId\":%s,\"newZoneId\":%d,\"fieldId\":%d}",
                             saved.getNodeId(), previousZoneId != null ? previousZoneId : "null", zone.getId(),
-                            zone.getField() != null ? zone.getField().getId() : null))
+                            targetFieldId))
                     .build();
             auditLogRepository.save(auditLog);
+
+            if (farmlandValidationService != null && targetFieldId != null) {
+                try {
+                    farmlandValidationService.updateFarmlandOperationalStatus(targetFieldId);
+                } catch (Exception ex) {
+                    log.warn("Could not update operational status for field {}: {}", targetFieldId, ex.getMessage());
+                }
+            }
 
             log.info("Node {} successfully assigned to field {} and zone {}",
                     saved.getNodeId(), zone.getField() != null ? zone.getField().getName() : "N/A", zone.getName());
@@ -188,11 +282,17 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
         } else {
             // Unassign node from current zone
             node.setMonitoringZone(null);
+            List<MonitoringPoint> points = monitoringPointRepository.findByEdgeNodeId(node.getId());
+            for (MonitoringPoint p : points) {
+                p.setMonitoringZone(null);
+                monitoringPointRepository.save(p);
+            }
+
             EdgeNode saved = edgeNodeRepository.save(node);
 
             IrrigationAuditLog auditLog = IrrigationAuditLog.builder()
                     .eventType("NODE_FIELD_ASSIGNMENT_CLEARED")
-                    .actor("ARVALINK_ADMIN")
+                    .actor("ARVALINK_OPERATOR")
                     .entityType("EdgeNode")
                     .entityId(String.valueOf(node.getId()))
                     .payloadJson(String.format("{\"nodeId\":\"%s\",\"previousZoneId\":%s,\"newZoneId\":null}",
@@ -200,9 +300,53 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
                     .build();
             auditLogRepository.save(auditLog);
 
+            if (farmlandValidationService != null && previousFieldId != null) {
+                try {
+                    farmlandValidationService.updateFarmlandOperationalStatus(previousFieldId);
+                } catch (Exception ex) {
+                    log.warn("Could not update operational status for field {}: {}", previousFieldId, ex.getMessage());
+                }
+            }
+
             log.info("Node {} unassigned from previous zone {}", saved.getNodeId(), previousZoneId);
             return DtoMapper.toEdgeNodeResponse(saved);
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<NodeAssignmentHistoryResponse> getNodeAssignmentHistory(Long id) {
+        EdgeNode node = findNodeOrThrow(id);
+        return doFetchNodeAssignmentHistory(node);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<NodeAssignmentHistoryResponse> getNodeAssignmentHistory(String nodeId) {
+        EdgeNode node = findNodeOrThrow(nodeId);
+        return doFetchNodeAssignmentHistory(node);
+    }
+
+    private List<NodeAssignmentHistoryResponse> doFetchNodeAssignmentHistory(EdgeNode node) {
+        List<NodeAssignmentHistory> histories = nodeAssignmentHistoryRepository.findByEdgeNodeIdOrderByAssignedAtDesc(node.getId());
+        List<NodeAssignmentHistoryResponse> responses = new ArrayList<>();
+        for (NodeAssignmentHistory h : histories) {
+            String fieldName = null;
+            if (h.getFieldId() != null) {
+                fieldName = fieldRepository.findById(h.getFieldId()).map(Field::getName).orElse(null);
+            }
+            String zoneName = null;
+            String zoneCode = null;
+            if (h.getMonitoringZoneId() != null) {
+                var zOpt = monitoringZoneRepository.findById(h.getMonitoringZoneId());
+                if (zOpt.isPresent()) {
+                    zoneName = zOpt.get().getName();
+                    zoneCode = zOpt.get().getCode();
+                }
+            }
+            responses.add(DtoMapper.toNodeAssignmentHistoryResponse(h, fieldName, zoneName, zoneCode));
+        }
+        return responses;
     }
 
     @Override

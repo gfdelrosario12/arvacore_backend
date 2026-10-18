@@ -21,6 +21,16 @@ public class FieldRequest {
     @Positive(message = "Area must be positive")
     private Double areaHectares;
 
+    private Double lengthMeters;
+    private Double widthMeters;
+    private Double totalArea;
+    private String areaUnit;
+    private String shapeType;
+    private String operationalStatus;
+    private String description;
+    private String locationAddress;
+    private String ownerUsername;
+
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getBoundaryGeoJson() { return boundaryGeoJson; }

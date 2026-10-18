@@ -68,6 +68,16 @@ public class EdgeNodeRegistryController {
         return ResponseEntity.ok(edgeNodeRegistryService.assignNodeToField(id, request));
     }
 
+    @GetMapping("/{id}/history")
+    public ResponseEntity<List<NodeAssignmentHistoryResponse>> getNodeAssignmentHistory(@PathVariable String id) {
+        try {
+            Long numericId = Long.parseLong(id);
+            return ResponseEntity.ok(edgeNodeRegistryService.getNodeAssignmentHistory(numericId));
+        } catch (NumberFormatException e) {
+            return ResponseEntity.ok(edgeNodeRegistryService.getNodeAssignmentHistory(id));
+        }
+    }
+
     @PostMapping("/{id}/commission")
     public ResponseEntity<CommissionNodeResponse> commissionNode(
             @PathVariable Long id,

@@ -21,6 +21,17 @@ public class MonitoringZoneTopologyResponse {
     private String cropGrowthStage;
     private Double targetMoisturePercentage;
     private Double waterAllocationLimitLiters;
+    private String code;
+    private String areaType;
+    private Double lengthMeters;
+    private Double widthMeters;
+    private Double areaSize;
+    private String areaUnit;
+    private Double relativeX;
+    private Double relativeY;
+    private Double relativeWidth;
+    private Double relativeHeight;
+    private String operationalStatus;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

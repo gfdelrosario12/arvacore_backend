@@ -21,4 +21,13 @@ public interface ZoneService {
     void deleteZone(Long id);
     List<ZoneResponse> getZonesByCropType(String cropType);
     List<ZoneResponse> getAllZones();
+
+    List<MonitoringZoneResponse> getMonitoringZonesByFieldId(Long fieldId);
+    MonitoringZoneResponse createMonitoringZone(Long fieldId, com.aquaflow.backend.dto.request.MonitoringZoneRequest request);
+    MonitoringZoneResponse updateMonitoringZone(Long zoneId, com.aquaflow.backend.dto.request.MonitoringZoneRequest request);
+    void archiveMonitoringZone(Long zoneId);
+    List<MonitoringZoneResponse> splitMonitoringZone(Long zoneId, com.aquaflow.backend.dto.request.SplitZoneRequest request);
+    MonitoringZoneResponse mergeMonitoringZones(Long fieldId, com.aquaflow.backend.dto.request.MergeZonesRequest request);
+    com.aquaflow.backend.dto.response.FieldResponse updateFarmlandLayout(Long fieldId, com.aquaflow.backend.dto.request.FarmlandLayoutDto layout);
+    List<com.aquaflow.backend.dto.response.NodeAssignmentHistoryResponse> getFieldAssignmentHistory(Long fieldId);
 }

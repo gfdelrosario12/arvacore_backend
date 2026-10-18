@@ -603,18 +603,61 @@ docker compose logs -f app
 | **Zone Aggregation & Health Monitoring** | ✅ | Aggregation service, stale telemetry degradation tracking |
 | **Manual Override & Emergency Downlinks** | ✅ | Downlink command queueing & ChirpStack integration |
 | **STOMP WebSockets Realtime Streaming** | ✅ | Live topic broadcasts for telemetry, status, and zone metrics |
+| **Dynamic Farmland & Zone Division** | ✅ | Full layout designer, split/merge engine, prerequisite validation (V12) |
+| **Immutable Node Assignment History** | ✅ | Node placement audit logs, attribution tracking across reassignments |
 | **Multi-Tenant Data Isolation** | ⏳ | Tenant ID isolation planned for v2.0 release |
 
 ---
 
-## 19. Known Limitations & TODOs
+## 19. Dynamic Farmland Configuration & Farm-to-Node Management
+
+### Overview
+
+Added via Flyway Migration `V12__dynamic_farmland_and_node_assignment_history.sql`, the backend provides production-grade physical farmland customization, dynamic division of acreage into $N$ monitoring zones, and prerequisite-validated node assignment with historical audit logging.
+
+### Key API Endpoints
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/v1/fields/{id}/readiness` | Evaluates prerequisite criteria, returns readiness status, blocking issues, and coverage %. |
+| `GET` | `/api/v1/fields/{id}/zones` | Lists all active non-archived monitoring zones belonging to the field. |
+| `POST` | `/api/v1/fields/{id}/zones` | Creates a new monitoring zone with dimensions, area size, crop type, and relative coordinates. |
+| `PUT` | `/api/v1/fields/{fieldId}/zones/{zoneId}` | Updates zone properties, dimensions, and operational status. |
+| `DELETE` | `/api/v1/fields/{fieldId}/zones/{zoneId}` | Soft-archives a zone, unassigning active hardware nodes. |
+| `POST` | `/api/v1/fields/{fieldId}/zones/{zoneId}/split` | Splits a zone horizontally or vertically with custom ratio into two new zones. |
+| `POST` | `/api/v1/fields/{fieldId}/zones/merge` | Combines 2+ zones into a single merged monitoring zone with combined bounding box. |
+| `POST` | `/api/v1/fields/{fieldId}/layout` | Batch updates relative bounding-box coordinates (`relativeX`, `relativeY`, `relativeWidth`, `relativeHeight`). |
+| `GET` | `/api/v1/fields/{id}/history` | Returns chronological immutable audit log of node placements and unassignments. |
+| `GET` | `/api/v1/nodes/{id}/history` | Returns placement history for a specific hardware ArvaNode. |
+
+### Immutable Assignment History Schema
+
+```sql
+CREATE TABLE node_assignment_histories (
+    id BIGSERIAL PRIMARY KEY,
+    edge_node_id VARCHAR(64) NOT NULL,
+    field_id BIGINT,
+    monitoring_zone_id BIGINT,
+    monitoring_point_id BIGINT,
+    assigned_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    unassigned_at TIMESTAMP WITH TIME ZONE,
+    assigned_by VARCHAR(100),
+    unassigned_by VARCHAR(100),
+    assignment_reason VARCHAR(255),
+    unassignment_reason VARCHAR(255)
+);
+```
+
+---
+
+## 20. Known Limitations & TODOs
 
 - **Transport Protocols**: Currently supports LoRaWAN / ChirpStack; Cellular/NB-IoT transport adapters are under development.
 - **Offline Downlink Sync**: Direct peer-to-peer ESP-NOW mesh downlinks are under evaluation for gateway out-of-reach nodes.
 
 ---
 
-## 20. Quick Reference
+## 21. Quick Reference
 
 | Action | Command / Endpoint |
 | :--- | :--- |

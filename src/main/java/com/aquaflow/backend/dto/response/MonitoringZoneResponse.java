@@ -18,6 +18,21 @@ public class MonitoringZoneResponse {
     private String cropType;
     private Double targetMoisturePercentage;
     private Double waterAllocationLimitLiters;
+    private String code;
+    private String areaType;
+    private Double lengthMeters;
+    private Double widthMeters;
+    private Double areaSize;
+    private String areaUnit;
+    private Double relativeX;
+    private Double relativeY;
+    private Double relativeWidth;
+    private Double relativeHeight;
+    private String boundaryGeoJson;
+    private String operationalStatus;
+    private Boolean isArchived;
+    private Integer assignedNodeCount;
+    private java.util.List<String> assignedNodeIds;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
