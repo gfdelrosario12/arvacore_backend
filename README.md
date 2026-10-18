@@ -467,6 +467,7 @@ ArvaCore enforces strict account isolation, case-insensitive identifier resoluti
 | **V8** | `V8__telemetry_field_attribution_and_pairing_expiration.sql` | Add immutable `field_id` to telemetry readings and add `expires_at` column with indexes to node pairing requests |
 | **V9** | `V9__telemetry_stream_events.sql` | Dedicated table and indexes for live ESP32 telemetry transmission notification events |
 | **V10** | `V10__reconcile_accounts_and_enforce_isolation.sql` | Reconcile baseline accounts, add email unique constraint, and enforce strict account isolation |
+| **V11** | `V11__create_missing_operational_and_aggregate_tables.sql` | Missing operational and aggregate tables (`zone_telemetry_aggregates`, `awd_threshold_configs`, `config_sync_tasks`, `downlink_queue_items`, `irrigation_command_records`, `command_state_transition_histories`) and health metric columns on `edge_nodes` |
 
 
 ---
