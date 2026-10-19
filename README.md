@@ -310,7 +310,10 @@ All REST endpoints are prefixed with `/api/v1/`.
 | `POST` | `/api/v1/nodes` | Register a new ESP32 edge node device | `ROLE_OPERATOR`+ |
 | `PUT` | `/api/v1/nodes/{id}` | Update node configuration or zone association | `ROLE_OPERATOR`+ |
 | `PUT` | `/api/v1/nodes/{id}/field-assignment` | Dynamically reassign node to field and monitoring zone | `ROLE_OPERATOR`+ |
-| `DELETE` | `/api/v1/nodes/{id}/pairing` | Forcefully unpair registered node, revoking authorization & clearing cached state | `ROLE_OPERATOR`+ |
+| `DELETE` | `/api/v1/nodes/{id}/pairing` | Unpair registered node, revoking authorization & clearing cached state | `ROLE_OPERATOR`+ |
+| `POST` | `/api/v1/nodes/{id}/unpair` | Manual unpair action alias for edge node revocation | `ROLE_OPERATOR`+ |
+| `DELETE` | `/api/v1/nodes/{id}/field-assignment` | Detach node from field and monitoring zone without unpairing from network | `ROLE_OPERATOR`+ |
+| `POST` | `/api/v1/nodes/pairing/reset` | Bulk or scoped pairing reset (`UNASSIGNED_ONLY`, `ALL_PAIRED`, `FACTORY_ALL`) | `ROLE_ADMIN` |
 | `GET` | `/api/v1/nodes/{id}/health` | Retrieve current health state (`HEALTHY`, `DEGRADED`, `CRITICAL`) | `ROLE_VIEWER`+ |
 
 ### Node Pairing & Gateway Discovery (`/api/v1/pairing`)
@@ -319,14 +322,17 @@ All REST endpoints are prefixed with `/api/v1/`.
 | :--- | :--- | :--- | :---:|
 | `GET` | `/api/v1/pairing/requests` | List discovered node pairing requests (with 30m expiration) | `ROLE_OPERATOR`+ |
 | `POST` | `/api/v1/pairing/request` | Submit physical node pairing request from gateway / node | Public / Gateway |
-| `POST` | `/api/v1/pairing/approve/{nodeId}` | Approve pairing request and assign field and monitoring zone (permanent pairing) | `ROLE_OPERATOR`+ |
-| `GET` | `/api/v1/pairing/status/{nodeId}` | Query pairing status for node hardware (checks 30m expiration, returns REVOKED on unpair) | Public / Gateway |
+| `POST` | `/api/v1/pairing/requests/{id}/approve` | Approve pairing request and assign field and monitoring zone | `ROLE_OPERATOR`+ |
+| `POST` | `/api/v1/pairing/requests/{id}/reject` | Reject pairing request with optional rejection reason | `ROLE_OPERATOR`+ |
+| `GET` | `/api/v1/pairing/status/{nodeId}` | Query pairing status for node hardware (returns REVOKED when unpaired) | Public / Gateway |
 
 > [!NOTE]
-> **Node Pairing Lifecycle Guarantees**:
-> - **Permanent Accepted Pairings**: Once approved, pairings remain active indefinitely across service restarts and network reconnects until explicitly unpaired by an authorized operator or administrator.
-> - **30-Minute Pending Expiration**: Unapproved pairing requests expire exactly 30 minutes after initial discovery and cannot be approved post-expiration.
-> - **Forceful Revocation**: Invoking `DELETE /api/v1/nodes/{nodeId}/pairing` transitions the node to `UNREGISTERED` / `REVOKED`, disassociates field/zone monitoring points, purges ingestion caches, and broadcasts real-time eviction events to connected dashboards.
+> **Node Unpairing & Lifecycle Guarantees**:
+> - **Manual Unpairing**: Authorized operators and administrators can manually unpair nodes via `DELETE /api/v1/nodes/{nodeId}/pairing` or `POST /api/v1/nodes/{nodeId}/unpair`. This operation revokes pairing authorization, marks records as `REVOKED`, transitions the node to `UNREGISTERED`, disassociates monitoring points, and clears telemetry caches.
+> - **Offline Device Handling**: Unpairing takes effect immediately on the server even when the physical ESP32 node is offline. When an offline node reconnects, authorization revalidation via `/api/v1/pairing/status/{nodeId}` returns `REVOKED`, stopping local monitoring, while subsequent telemetry attempts are rejected (`400 Bad Request: NODE_NOT_ACTIVE`).
+> - **Permanent Records & Historical Integrity**: Unpairing does not delete the physical device identity (`nodeId`, MAC address) or historical sensor telemetry. Historical data remains accessible on dashboards and reports.
+> - **Re-Pairing Capability**: Unpaired nodes are eligible to re-enter pairing at any time via `POST /api/v1/pairing/request` and operator approval without requiring a firmware reflash.
+
 
 
 

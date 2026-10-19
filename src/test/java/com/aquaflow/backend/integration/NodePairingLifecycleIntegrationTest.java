@@ -256,4 +256,91 @@ public class NodePairingLifecycleIntegrationTest {
                         .content(objectMapper.writeValueAsString(uplink)))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    @DisplayName("A previously unpaired node can enter pairing again, get approved, and resume telemetry")
+    @Transactional
+    public void shouldAllowRePairingOfPreviouslyUnpairedNode() throws Exception {
+        String adminToken = getAuthToken("admin", "password123");
+
+        // 1. Setup and unpair node
+        EdgeNode node = EdgeNode.builder()
+                .nodeId("NODE-REPAIR-CYCLE")
+                .identity(CommunicationIdentity.builder()
+                        .identityType(CommunicationIdentityType.MAC_ADDRESS)
+                        .identityValue("44:55:66:77:88:99")
+                        .macAddress("44:55:66:77:88:99")
+                        .build())
+                .lifecycleState(NodeLifecycleState.ACTIVE)
+                .healthState(com.aquaflow.backend.entity.HealthState.HEALTHY)
+                .build();
+        edgeNodeRepository.save(node);
+
+        // Unpair node via POST alias
+        mockMvc.perform(post("/api/v1/nodes/NODE-REPAIR-CYCLE/unpair")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+
+        // Verify status is REVOKED
+        MvcResult statusResult = mockMvc.perform(get("/api/v1/pairing/status/NODE-REPAIR-CYCLE"))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode statusJson = objectMapper.readTree(statusResult.getResponse().getContentAsString());
+        assertThat(statusJson.get("pairingStatus").asText()).isEqualTo("REVOKED");
+
+        // 2. Node initiates fresh pairing request
+        NodePairingSubmissionRequest submission = NodePairingSubmissionRequest.builder()
+                .nodeId("NODE-REPAIR-CYCLE")
+                .macAddress("44:55:66:77:88:99")
+                .hardwareModel("ESP32-WROOM-32D")
+                .firmwareVersion("1.2.0")
+                .build();
+
+        MvcResult subResult = mockMvc.perform(post("/api/v1/pairing/request")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(submission)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        JsonNode subJson = objectMapper.readTree(subResult.getResponse().getContentAsString());
+        long newRequestId = subJson.get("id").asLong();
+        assertThat(subJson.get("pairingStatus").asText()).isEqualTo("PENDING");
+
+        // 3. Admin approves the pairing request
+        RegisterNodeRequest approvalRequest = RegisterNodeRequest.builder()
+                .nodeId("NODE-REPAIR-CYCLE")
+                .identityType(CommunicationIdentityType.MAC_ADDRESS)
+                .identityValue("44:55:66:77:88:99")
+                .hardwareModel("ESP32-WROOM-32D")
+                .firmwareVersion("1.2.0")
+                .macAddress("44:55:66:77:88:99")
+                .build();
+
+        mockMvc.perform(post("/api/v1/pairing/requests/" + newRequestId + "/approve")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(approvalRequest)))
+                .andExpect(status().isOk());
+
+        // 4. Verify node is ACTIVE again and pairing status is APPROVED
+        MvcResult reStatus = mockMvc.perform(get("/api/v1/pairing/status/NODE-REPAIR-CYCLE"))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode reStatusJson = objectMapper.readTree(reStatus.getResponse().getContentAsString());
+        assertThat(reStatusJson.get("pairingStatus").asText()).isEqualTo("APPROVED");
+
+        // 5. Telemetry uplink must now succeed
+        TelemetryUplinkRequest uplink = TelemetryUplinkRequest.builder()
+                .nodeId("NODE-REPAIR-CYCLE")
+                .seq(1L)
+                .soilMoisturePercent(52.0)
+                .waterLevelDistance(12.5)
+                .measurements(Map.of("soil_moisture", 52.0))
+                .build();
+
+        mockMvc.perform(post("/api/v1/telemetry/uplink/NODE-REPAIR-CYCLE")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(uplink)))
+                .andExpect(status().isOk());
+    }
 }

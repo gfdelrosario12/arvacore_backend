@@ -95,7 +95,10 @@ public class EdgeNodeRegistryController {
         return ResponseEntity.ok(edgeNodeRegistryService.decommissionNode(id));
     }
 
-    @DeleteMapping("/{nodeId}/pairing")
+    @RequestMapping(
+            value = {"/{nodeId}/pairing", "/{nodeId}/unpair"},
+            method = {RequestMethod.DELETE, RequestMethod.POST}
+    )
     public ResponseEntity<com.aquaflow.backend.dto.response.NodeUnpairResponse> unpairNode(
             @PathVariable String nodeId,
             Authentication authentication) {
