@@ -126,10 +126,10 @@ public class DeviceHmacValidator {
 
         String secret;
         String role;
-        if (keyId.equals(credential.getBootstrapKeyId())) {
+        if (keyId.equalsIgnoreCase(credential.getBootstrapKeyId())) {
             secret = credential.getBootstrapSecret();
             role = "ROLE_DEVICE_BOOTSTRAP";
-        } else if (keyId.equals(credential.getOperationalKeyId())) {
+        } else if (credential.getOperationalKeyId() != null && keyId.equalsIgnoreCase(credential.getOperationalKeyId())) {
             if (credential.getCredentialState() != DeviceCredentialState.OPERATIONAL) {
                 return DeviceAuthResult.failure("DEVICE_NOT_PAIRED", "Operational key presented but device state is " + credential.getCredentialState());
             }
