@@ -3,6 +3,7 @@ package com.aquaflow.backend.domain;
 import com.aquaflow.backend.dto.request.MasterStateUpdateRequest;
 import com.aquaflow.backend.dto.request.NodePairingSubmissionRequest;
 import com.aquaflow.backend.dto.request.NodePairingResetRequest;
+import com.aquaflow.backend.dto.request.PairingCompletionRequest;
 import com.aquaflow.backend.dto.request.PairingRejectionRequest;
 import com.aquaflow.backend.dto.request.RegisterNodeRequest;
 import com.aquaflow.backend.dto.response.*;
@@ -41,6 +42,7 @@ public class NodePairingServiceImpl implements NodePairingService {
     private final EdgeNodeRegistryService edgeNodeRegistryService;
     private final SystemAuditLogRepository auditLogRepository;
     private final SystemEventPublisher systemEventPublisher;
+    private final com.aquaflow.backend.persistence.DeviceCredentialRepository deviceCredentialRepository;
 
     @Autowired(required = false)
     private RealtimeEventPublisherService realtimeEventPublisherService;
@@ -142,9 +144,47 @@ public class NodePairingServiceImpl implements NodePairingService {
         }
 
         String nodeId = request.getNodeId().trim();
+        LocalDateTime now = LocalDateTime.now();
 
-        // 1. Check if node is already recognized in EdgeNode registry to update metadata
+        // 1. Mandatory Already-Paired Detection & Loop Prevention
         Optional<EdgeNode> existingNode = edgeNodeRepository.findByNodeId(nodeId);
+        boolean isCredentialOperational = false;
+        if (deviceCredentialRepository != null) {
+            var credOpt = deviceCredentialRepository.findByNodeId(nodeId);
+            if (credOpt.isPresent() && credOpt.get().getCredentialState() == DeviceCredentialState.OPERATIONAL) {
+                isCredentialOperational = true;
+            }
+        }
+        Optional<NodePairingRequest> latestPairingOpt = pairingRequestRepository
+                .findFirstByNodeIdOrderByRequestedAtDesc(nodeId);
+        boolean isPairedRecord = latestPairingOpt.isPresent() &&
+                (latestPairingOpt.get().getPairingStatus() == PairingStatus.PAIRED ||
+                 latestPairingOpt.get().getPairingStatus() == PairingStatus.APPROVED);
+
+        if (existingNode.isPresent() && existingNode.get().getLifecycleState() == NodeLifecycleState.ACTIVE &&
+                (isCredentialOperational || isPairedRecord)) {
+            EdgeNode node = existingNode.get();
+            log.info("Node {} is already registered, commissioned, and paired. Returning ALREADY_PAIRED.", nodeId);
+            return PairingRequestResponse.builder()
+                    .id(latestPairingOpt.map(NodePairingRequest::getId).orElse(null))
+                    .nodeId(nodeId)
+                    .hardwareModel(node.getHardwareModel() != null ? node.getHardwareModel() : request.getHardwareModel())
+                    .firmwareVersion(node.getFirmwareVersion() != null ? node.getFirmwareVersion() : request.getFirmwareVersion())
+                    .macAddress(node.getIdentity() != null ? node.getIdentity().getMacAddress() : request.getMacAddress())
+                    .pairingStatus(PairingStatus.ALREADY_PAIRED)
+                    .paired(true)
+                    .action("RESUME_OPERATION")
+                    .recognized(true)
+                    .existingEdgeNodeId(node.getId())
+                    .existingLifecycleState(node.getLifecycleState() != null ? node.getLifecycleState().name() : "ACTIVE")
+                    .existingZoneId(node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null)
+                    .existingZoneName(node.getMonitoringZone() != null ? node.getMonitoringZone().getName() : null)
+                    .requestedAt(latestPairingOpt.map(NodePairingRequest::getRequestedAt).orElse(now))
+                    .expiresAt(latestPairingOpt.map(NodePairingRequest::getExpiresAt).orElse(now.plusYears(1)))
+                    .build();
+        }
+
+        // Update hardware/identity metadata on edge node if recognized
         if (existingNode.isPresent()) {
             EdgeNode node = existingNode.get();
             if (request.getMacAddress() != null && node.getIdentity() != null) {
@@ -154,9 +194,27 @@ public class NodePairingServiceImpl implements NodePairingService {
             if (request.getHardwareModel() != null) node.setHardwareModel(request.getHardwareModel());
             if (request.getFirmwareVersion() != null) node.setFirmwareVersion(request.getFirmwareVersion());
             if (node.getHealthMetrics() != null) {
-                node.getHealthMetrics().setLastHeartbeat(LocalDateTime.now());
+                node.getHealthMetrics().setLastHeartbeat(now);
             }
             edgeNodeRepository.save(node);
+        }
+
+        // Ensure bootstrap credential exists for node
+        if (deviceCredentialRepository != null) {
+            deviceCredentialRepository.findByNodeId(nodeId).orElseGet(() -> {
+                String bootKey = (request.getDeviceKeyId() != null && !request.getDeviceKeyId().isBlank())
+                        ? request.getDeviceKeyId() : "bootstrap-" + nodeId;
+                String secret = "dev_sec_" + UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
+                return deviceCredentialRepository.save(DeviceCredential.builder()
+                        .nodeId(nodeId)
+                        .bootstrapKeyId(bootKey)
+                        .bootstrapSecret(secret)
+                        .credentialState(DeviceCredentialState.BOOTSTRAP)
+                        .installationId(request.getInstallationId() != null ? request.getInstallationId() : "default")
+                        .createdAt(now)
+                        .updatedAt(now)
+                        .build());
+            });
         }
 
         // 2. Manage PENDING pairing request with 30-minute expiration window (deduplication)
@@ -164,7 +222,6 @@ public class NodePairingServiceImpl implements NodePairingService {
                 .findFirstByNodeIdAndPairingStatusOrderByRequestedAtDesc(nodeId, PairingStatus.PENDING);
 
         NodePairingRequest entity;
-        LocalDateTime now = LocalDateTime.now();
         if (existingPending.isPresent()) {
             NodePairingRequest pending = existingPending.get();
             if (pending.isExpired()) {
@@ -173,39 +230,75 @@ public class NodePairingServiceImpl implements NodePairingService {
                 pending.setProcessedBy("SYSTEM_EXPIRATION");
                 pairingRequestRepository.save(pending);
 
-                // Expired request: allow fresh pairing request with new 30-minute expiration window
+                // Expired request: create fresh PENDING request with new 30-minute window
                 entity = NodePairingRequest.builder()
                         .nodeId(nodeId)
                         .macAddress(request.getMacAddress())
                         .hardwareModel(request.getHardwareModel())
                         .firmwareVersion(request.getFirmwareVersion())
+                        .deviceKeyId(request.getDeviceKeyId())
+                        .installationId(request.getInstallationId() != null ? request.getInstallationId() : "default")
                         .pairingStatus(PairingStatus.PENDING)
                         .requestedAt(now)
                         .expiresAt(now.plusMinutes(30))
+                        .updatedAt(now)
                         .build();
                 entity = pairingRequestRepository.save(entity);
-                log.info("Previous pairing request expired; created fresh PENDING request for node {}", nodeId);
+                log.info("Previous pairing request expired; created fresh PENDING request #{} for node {}", entity != null ? entity.getId() : "0", nodeId);
             } else {
                 entity = pending;
-                // Active window: update hardware/firmware metadata WITHOUT resetting expiresAt
+                // Active window: reuse existing request without extending expiration
                 if (request.getMacAddress() != null) entity.setMacAddress(request.getMacAddress());
                 if (request.getHardwareModel() != null) entity.setHardwareModel(request.getHardwareModel());
                 if (request.getFirmwareVersion() != null) entity.setFirmwareVersion(request.getFirmwareVersion());
+                if (request.getDeviceKeyId() != null) entity.setDeviceKeyId(request.getDeviceKeyId());
+                entity.setUpdatedAt(now);
                 entity = pairingRequestRepository.save(entity);
-                log.info("Updated existing PENDING pairing request for node {} without extending expiration (expires at {})", nodeId, entity.getExpiresAt());
+                log.info("Reused existing active PENDING pairing request #{} for node {} without extending expiration (expires at {})",
+                        entity != null ? entity.getId() : "0", nodeId, entity != null ? entity.getExpiresAt() : now);
+                PairingRequestResponse res = toPairingResponse(entity != null ? entity : pending);
+                res.setAction("WAIT_FOR_APPROVAL");
+                res.setPaired(false);
+                return res;
             }
         } else {
-            entity = NodePairingRequest.builder()
+            // Check for existing active APPROVED or PROVISIONING request to resume
+            Optional<NodePairingRequest> existingApproved = pairingRequestRepository
+                    .findFirstByNodeIdAndPairingStatusOrderByRequestedAtDesc(nodeId, PairingStatus.APPROVED);
+            if (existingApproved.isPresent() && !existingApproved.get().isExpired()) {
+                NodePairingRequest approved = existingApproved.get();
+                log.info("Reusing existing APPROVED pairing request #{} for node {}", approved.getId(), nodeId);
+                PairingRequestResponse res = toPairingResponse(approved);
+                res.setAction("PROVISION");
+                res.setPaired(false);
+                return res;
+            }
+
+            Optional<NodePairingRequest> existingProvisioning = pairingRequestRepository
+                    .findFirstByNodeIdAndPairingStatusOrderByRequestedAtDesc(nodeId, PairingStatus.PROVISIONING);
+            if (existingProvisioning.isPresent() && !existingProvisioning.get().isExpired()) {
+                NodePairingRequest prov = existingProvisioning.get();
+                log.info("Reusing existing PROVISIONING pairing request #{} for node {}", prov.getId(), nodeId);
+                PairingRequestResponse res = toPairingResponse(prov);
+                res.setAction("PROVISION");
+                res.setPaired(false);
+                return res;
+            }
+            NodePairingRequest toSave = NodePairingRequest.builder()
                     .nodeId(nodeId)
                     .macAddress(request.getMacAddress())
                     .hardwareModel(request.getHardwareModel())
                     .firmwareVersion(request.getFirmwareVersion())
+                    .deviceKeyId(request.getDeviceKeyId())
+                    .installationId(request.getInstallationId() != null ? request.getInstallationId() : "default")
                     .pairingStatus(PairingStatus.PENDING)
                     .requestedAt(now)
                     .expiresAt(now.plusMinutes(30))
+                    .updatedAt(now)
                     .build();
-            entity = pairingRequestRepository.save(entity);
-            log.info("Created new PENDING pairing request for node {} (expires at {})", nodeId, entity.getExpiresAt());
+            NodePairingRequest saved = pairingRequestRepository.save(toSave);
+            entity = (saved != null) ? saved : toSave;
+            log.info("Created new PENDING pairing request #{} for node {} (expires at {})", entity.getId(), nodeId, entity.getExpiresAt());
         }
 
         // Audit log
@@ -213,11 +306,11 @@ public class NodePairingServiceImpl implements NodePairingService {
                 .eventType("NODE_PAIRING_REQUESTED")
                 .actor(nodeId)
                 .entityType("NodePairingRequest")
-                .entityId(String.valueOf(entity.getId()))
+                .entityId(String.valueOf(entity != null ? entity.getId() : "0"))
                 .previousState("NONE")
                 .resultingState("PENDING")
                 .payloadJson(String.format("{\"nodeId\":\"%s\",\"mac\":\"%s\"}", nodeId, request.getMacAddress()))
-                .createdAt(LocalDateTime.now())
+                .createdAt(now)
                 .build());
 
         // Notify realtime subscribers
@@ -227,7 +320,10 @@ public class NodePairingServiceImpl implements NodePairingService {
             log.warn("Failed to publish pairing request event: {}", e.getMessage());
         }
 
-        return toPairingResponse(entity);
+        PairingRequestResponse response = toPairingResponse(entity);
+        response.setAction("WAIT_FOR_APPROVAL");
+        response.setPaired(false);
+        return response;
     }
 
     @Override
@@ -278,7 +374,11 @@ public class NodePairingServiceImpl implements NodePairingService {
             // If the node lifecycle is UNREGISTERED, return REVOKED status
             if (node.getLifecycleState() == NodeLifecycleState.UNREGISTERED) {
                 if (latestReq.isPresent()) {
-                    return toPairingResponse(latestReq.get());
+                    PairingRequestResponse resp = toPairingResponse(latestReq.get());
+                    resp.setPairingStatus(PairingStatus.REVOKED);
+                    resp.setAction("REVOKED");
+                    resp.setPaired(false);
+                    return resp;
                 }
                 return PairingRequestResponse.builder()
                         .nodeId(cleanNodeId)
@@ -286,9 +386,35 @@ public class NodePairingServiceImpl implements NodePairingService {
                         .firmwareVersion(node.getFirmwareVersion())
                         .macAddress(node.getIdentity() != null ? node.getIdentity().getMacAddress() : null)
                         .pairingStatus(PairingStatus.REVOKED)
+                        .action("REVOKED")
+                        .paired(false)
                         .recognized(false)
                         .existingEdgeNodeId(node.getId())
                         .existingLifecycleState(node.getLifecycleState() != null ? node.getLifecycleState().name() : null)
+                        .build();
+            }
+
+            // If active and paired, return ALREADY_PAIRED / PAIRED
+            if (node.getLifecycleState() == NodeLifecycleState.ACTIVE) {
+                if (latestReq.isPresent()) {
+                    PairingRequestResponse resp = toPairingResponse(latestReq.get());
+                    resp.setPaired(true);
+                    resp.setAction("RESUME_OPERATION");
+                    return resp;
+                }
+                return PairingRequestResponse.builder()
+                        .nodeId(cleanNodeId)
+                        .hardwareModel(node.getHardwareModel())
+                        .firmwareVersion(node.getFirmwareVersion())
+                        .macAddress(node.getIdentity() != null ? node.getIdentity().getMacAddress() : null)
+                        .pairingStatus(PairingStatus.PAIRED)
+                        .paired(true)
+                        .action("RESUME_OPERATION")
+                        .recognized(true)
+                        .existingEdgeNodeId(node.getId())
+                        .existingLifecycleState(node.getLifecycleState() != null ? node.getLifecycleState().name() : null)
+                        .existingZoneId(node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null)
+                        .existingZoneName(node.getMonitoringZone() != null ? node.getMonitoringZone().getName() : null)
                         .build();
             }
 
@@ -301,6 +427,8 @@ public class NodePairingServiceImpl implements NodePairingService {
                     .firmwareVersion(node.getFirmwareVersion())
                     .macAddress(node.getIdentity() != null ? node.getIdentity().getMacAddress() : null)
                     .pairingStatus(PairingStatus.APPROVED)
+                    .action("PROVISION")
+                    .paired(false)
                     .recognized(true)
                     .existingEdgeNodeId(node.getId())
                     .existingLifecycleState(node.getLifecycleState() != null ? node.getLifecycleState().name() : null)
@@ -461,6 +589,139 @@ public class NodePairingServiceImpl implements NodePairingService {
     }
 
     @Override
+    public PairingProvisionResponse provisionOperationalCredential(Long pairingRequestId, String actor) {
+        NodePairingRequest pairingReq = pairingRequestRepository.findById(pairingRequestId)
+                .orElseThrow(() -> new ResourceNotFoundException("Pairing request not found: " + pairingRequestId));
+
+        if (pairingReq.getPairingStatus() != PairingStatus.APPROVED &&
+                pairingReq.getPairingStatus() != PairingStatus.PROVISIONING) {
+            throw new ValidationException("PAIRING_NOT_APPROVED: Pairing request " + pairingRequestId +
+                    " is in state " + pairingReq.getPairingStatus() + ", expected APPROVED");
+        }
+
+        String nodeId = pairingReq.getNodeId();
+        LocalDateTime now = LocalDateTime.now();
+
+        DeviceCredential credential = (deviceCredentialRepository != null)
+                ? deviceCredentialRepository.findByNodeId(nodeId).orElseGet(() -> DeviceCredential.builder()
+                        .nodeId(nodeId)
+                        .bootstrapKeyId("bootstrap-" + nodeId)
+                        .bootstrapSecret("dev_sec_" + UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", ""))
+                        .credentialState(DeviceCredentialState.BOOTSTRAP)
+                        .installationId(pairingReq.getInstallationId() != null ? pairingReq.getInstallationId() : "default")
+                        .createdAt(now)
+                        .updatedAt(now)
+                        .build())
+                : DeviceCredential.builder()
+                        .nodeId(nodeId)
+                        .bootstrapKeyId("bootstrap-" + nodeId)
+                        .bootstrapSecret("dev_sec_" + UUID.randomUUID().toString().replace("-", ""))
+                        .credentialState(DeviceCredentialState.BOOTSTRAP)
+                        .installationId(pairingReq.getInstallationId() != null ? pairingReq.getInstallationId() : "default")
+                        .createdAt(now)
+                        .updatedAt(now)
+                        .build();
+
+        // Idempotent: reuse existing operational secret if already generated for this pairing session, otherwise create fresh
+        String operKeyId = credential.getOperationalKeyId();
+        String operSecret = credential.getOperationalSecret();
+        if (operKeyId == null || operSecret == null || operSecret.isBlank()) {
+            operKeyId = "oper-" + nodeId + "-" + System.currentTimeMillis();
+            operSecret = "oper_sec_" + UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
+            credential.setOperationalKeyId(operKeyId);
+            credential.setOperationalSecret(operSecret);
+            credential.setUpdatedAt(now);
+            if (deviceCredentialRepository != null) {
+                deviceCredentialRepository.save(credential);
+            }
+        }
+
+        pairingReq.setPairingStatus(PairingStatus.PROVISIONING);
+        pairingReq.setOperationalKeyId(operKeyId);
+        pairingReq.setUpdatedAt(now);
+        pairingRequestRepository.save(pairingReq);
+
+        log.info("Operational credential provisioned for node {} (keyId={})", nodeId, operKeyId);
+
+        return PairingProvisionResponse.builder()
+                .pairingRequestId(pairingReq.getId())
+                .nodeId(nodeId)
+                .operationalKeyId(operKeyId)
+                .operationalSecret(operSecret)
+                .status(PairingStatus.PROVISIONING)
+                .action("CONFIRM")
+                .expiresAt(pairingReq.getExpiresAt())
+                .build();
+    }
+
+    @Override
+    public PairingRequestResponse completePairing(Long pairingRequestId, PairingCompletionRequest request, String actor) {
+        NodePairingRequest pairingReq = pairingRequestRepository.findById(pairingRequestId)
+                .orElseThrow(() -> new ResourceNotFoundException("Pairing request not found: " + pairingRequestId));
+
+        LocalDateTime now = LocalDateTime.now();
+        String nodeId = pairingReq.getNodeId();
+
+        if (pairingReq.getPairingStatus() != PairingStatus.PROVISIONING &&
+                pairingReq.getPairingStatus() != PairingStatus.APPROVED) {
+            if (pairingReq.getPairingStatus() == PairingStatus.PAIRED) {
+                // Idempotent replay: already completed
+                PairingRequestResponse res = toPairingResponse(pairingReq);
+                res.setAction("RESUME_OPERATION");
+                res.setPaired(true);
+                return res;
+            }
+            throw new ValidationException("PAIRING_STATE_CONFLICT: Pairing request is in state " +
+                    pairingReq.getPairingStatus() + ", expected PROVISIONING");
+        }
+
+        if (deviceCredentialRepository != null) {
+            deviceCredentialRepository.findByNodeId(nodeId).ifPresent(cred -> {
+                cred.setCredentialState(DeviceCredentialState.OPERATIONAL);
+                cred.setUpdatedAt(now);
+                deviceCredentialRepository.save(cred);
+            });
+        }
+
+        pairingReq.setPairingStatus(PairingStatus.PAIRED);
+        pairingReq.setProcessedAt(now);
+        pairingReq.setProcessedBy(actor != null ? actor : "ESP32_COMPLETION");
+        pairingReq.setUpdatedAt(now);
+        NodePairingRequest saved = pairingRequestRepository.save(pairingReq);
+
+        // Ensure EdgeNode has ACTIVE lifecycleState
+        Optional<EdgeNode> nodeOpt = edgeNodeRepository.findByNodeId(nodeId);
+        if (nodeOpt.isPresent()) {
+            EdgeNode node = nodeOpt.get();
+            node.setLifecycleState(NodeLifecycleState.ACTIVE);
+            edgeNodeRepository.save(node);
+        }
+
+        // Audit log
+        auditLogRepository.save(SystemAuditLog.builder()
+                .eventType("NODE_PAIRING_COMPLETED")
+                .actor(actor != null ? actor : nodeId)
+                .entityType("NodePairingRequest")
+                .entityId(String.valueOf(pairingRequestId))
+                .previousState("PROVISIONING")
+                .resultingState("PAIRED")
+                .payloadJson(String.format("{\"nodeId\":\"%s\",\"keyId\":\"%s\"}", nodeId, pairingReq.getOperationalKeyId()))
+                .createdAt(now)
+                .build());
+
+        try {
+            systemEventPublisher.publishPairingRequestUpdated(nodeId, "PAIRED");
+        } catch (Exception e) {
+            log.warn("Failed to publish PAIRED event: {}", e.getMessage());
+        }
+
+        PairingRequestResponse response = toPairingResponse(saved);
+        response.setAction("RESUME_OPERATION");
+        response.setPaired(true);
+        return response;
+    }
+
+    @Override
     public NodeUnpairResponse unpairNode(String nodeId, String actor) {
         String cleanNodeId = (nodeId != null) ? nodeId.trim() : "";
         if (cleanNodeId.isBlank()) {
@@ -471,6 +732,18 @@ public class NodePairingServiceImpl implements NodePairingService {
         LocalDateTime now = LocalDateTime.now();
         String previousState = "UNREGISTERED";
         Long fieldId = null;
+
+        // Revoke device credentials
+        if (deviceCredentialRepository != null) {
+            deviceCredentialRepository.findByNodeId(cleanNodeId).ifPresent(cred -> {
+                cred.setCredentialState(DeviceCredentialState.REVOKED);
+                cred.setOperationalSecret(null);
+                cred.setOperationalKeyId(null);
+                cred.setUpdatedAt(now);
+                deviceCredentialRepository.save(cred);
+                log.info("Revoked operational credential for unpaired node {}", cleanNodeId);
+            });
+        }
 
         // 1. Check and revoke EdgeNode if present in registry
         Optional<EdgeNode> nodeOpt = edgeNodeRepository.findByNodeId(cleanNodeId);
@@ -785,6 +1058,18 @@ public class NodePairingServiceImpl implements NodePairingService {
                 .createdAt(now)
                 .build());
 
+        // Revoke device credentials on reset
+        if (deviceCredentialRepository != null) {
+            deviceCredentialRepository.findByNodeId(cleanNodeId).ifPresent(cred -> {
+                cred.setCredentialState(DeviceCredentialState.REVOKED);
+                cred.setOperationalSecret(null);
+                cred.setOperationalKeyId(null);
+                cred.setUpdatedAt(now);
+                deviceCredentialRepository.save(cred);
+                log.info("Revoked operational credential for reset node {}", cleanNodeId);
+            });
+        }
+
         // 6. Broadcast real-time events to all connected clients
         try {
             systemEventPublisher.publishPairingRequestUpdated(cleanNodeId, "REVOKED");
@@ -807,6 +1092,23 @@ public class NodePairingServiceImpl implements NodePairingService {
                 ? nodeOpt.get().getMonitoringZone().getName() : null;
 
         PairingStatus status = req.isExpired() ? PairingStatus.EXPIRED : req.getPairingStatus();
+        boolean isPaired = status == PairingStatus.PAIRED || status == PairingStatus.ALREADY_PAIRED ||
+                (nodeOpt.isPresent() && nodeOpt.get().getLifecycleState() == NodeLifecycleState.ACTIVE && status == PairingStatus.APPROVED);
+
+        String action;
+        if (isPaired) {
+            action = "RESUME_OPERATION";
+        } else if (status == PairingStatus.APPROVED || status == PairingStatus.PROVISIONING) {
+            action = "PROVISION";
+        } else if (status == PairingStatus.PENDING) {
+            action = "WAIT_FOR_APPROVAL";
+        } else if (status == PairingStatus.REJECTED) {
+            action = "REJECTED";
+        } else if (status == PairingStatus.EXPIRED) {
+            action = "EXPIRED";
+        } else {
+            action = "REVOKED";
+        }
 
         return PairingRequestResponse.builder()
                 .id(req.getId())
@@ -821,6 +1123,11 @@ public class NodePairingServiceImpl implements NodePairingService {
                 .expired(req.isExpired())
                 .processedAt(req.getProcessedAt())
                 .processedBy(req.getProcessedBy())
+                .action(action)
+                .paired(isPaired)
+                .deviceKeyId(req.getDeviceKeyId())
+                .installationId(req.getInstallationId())
+                .operationalKeyId(req.getOperationalKeyId())
                 .recognized(recognized)
                 .existingEdgeNodeId(edgeNodeId)
                 .existingLifecycleState(lifecycle)

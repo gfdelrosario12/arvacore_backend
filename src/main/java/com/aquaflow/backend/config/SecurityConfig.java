@@ -43,6 +43,7 @@ public class SecurityConfig {
     private final CustomAccessDeniedHandler accessDeniedHandler;
     private final UserDetailsService userDetailsService;
     private final GatewayAuthenticationFilter gatewayAuthenticationFilter;
+    private final com.aquaflow.backend.infrastructure.security.DeviceAuthenticationFilter deviceAuthenticationFilter;
 
     @Value("${aquaflow.cors.allowed-origins:*}")
     private String allowedOrigins;
@@ -54,7 +55,8 @@ public class SecurityConfig {
                           CustomAuthenticationEntryPoint authenticationEntryPoint,
                           CustomAccessDeniedHandler accessDeniedHandler,
                           UserDetailsService userDetailsService,
-                          GatewayAuthenticationFilter gatewayAuthenticationFilter) {
+                          GatewayAuthenticationFilter gatewayAuthenticationFilter,
+                          com.aquaflow.backend.infrastructure.security.DeviceAuthenticationFilter deviceAuthenticationFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.webhookAuthenticationFilter = webhookAuthenticationFilter;
         this.securityHeadersFilter = securityHeadersFilter;
@@ -63,6 +65,7 @@ public class SecurityConfig {
         this.accessDeniedHandler = accessDeniedHandler;
         this.userDetailsService = userDetailsService;
         this.gatewayAuthenticationFilter = gatewayAuthenticationFilter;
+        this.deviceAuthenticationFilter = deviceAuthenticationFilter;
     }
 
     @Bean
@@ -79,7 +82,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
                         .requestMatchers("/api/v1/auth/register").hasRole("ADMIN")
                         .requestMatchers("/api/v1/auth/**").authenticated()
-                        .requestMatchers("/api/v1/pairing/request", "/api/v1/pairing/status/**").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/pairing/requests", "/api/v1/pairing/request").permitAll()
+                        .requestMatchers("/api/v1/pairing/devices/**", "/api/v1/pairing/status/**").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/pairing/requests/*/provision", "/api/v1/pairing/requests/*/complete").permitAll()
+                        .requestMatchers("/api/v1/pairing/requests/pending", "/api/v1/pairing/requests").hasAnyRole("ADMIN", "OPERATOR")
                         .requestMatchers("/api/v1/pairing/requests/**").hasAnyRole("ADMIN", "OPERATOR")
                         .requestMatchers("/api/v1/pairing/**").hasAnyRole("ADMIN", "OPERATOR")
                         .requestMatchers("/api/v1/telemetry/uplink/**", "/api/v1/telemetry/uplink", "/api/v1/telemetry/batch-uplink").permitAll()
@@ -104,6 +110,7 @@ public class SecurityConfig {
                 .addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(webhookAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(gatewayAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(deviceAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -133,11 +140,16 @@ public class SecurityConfig {
                 "X-Webhook-Secret",
                 "X-Downlink-Secret",
                 "X-ArvaCore-Gateway-Key",
+                "X-Arva-Node-ID",
+                "X-Arva-Key-ID",
+                "X-Arva-Timestamp",
+                "X-Arva-Nonce",
+                "X-Arva-Signature",
                 "X-Requested-With",
                 "Access-Control-Request-Method",
                 "Access-Control-Request-Headers"
         ));
-        configuration.setExposedHeaders(List.of("X-Correlation-ID", "Authorization"));
+        configuration.setExposedHeaders(List.of("X-Correlation-ID", "Authorization", "X-Arva-Node-ID", "X-Arva-Key-ID"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 

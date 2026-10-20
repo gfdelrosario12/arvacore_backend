@@ -16,5 +16,6 @@ public class NodePairingSubmissionRequest {
     private String macAddress;
     private String hardwareModel;
     private String firmwareVersion;
+    private String deviceKeyId;
+    private String installationId;
 }
-

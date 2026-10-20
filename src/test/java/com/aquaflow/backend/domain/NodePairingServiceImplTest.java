@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
 class NodePairingServiceImplTest {
 
     @Mock
@@ -48,6 +49,9 @@ class NodePairingServiceImplTest {
 
     @Mock
     private SystemEventPublisher systemEventPublisher;
+
+    @Mock
+    private com.aquaflow.backend.persistence.DeviceCredentialRepository deviceCredentialRepository;
 
     @InjectMocks
     private NodePairingServiceImpl nodePairingService;

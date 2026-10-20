@@ -39,6 +39,18 @@ public class NodePairingRequest {
     @Column(name = "rejection_reason")
     private String rejectionReason;
 
+    @Column(name = "device_key_id")
+    private String deviceKeyId;
+
+    @Column(name = "installation_id")
+    private String installationId;
+
+    @Column(name = "operational_key_id")
+    private String operationalKeyId;
+
+    @Column(name = "provisioning_token")
+    private String provisioningToken;
+
     @Column(name = "requested_at", nullable = false)
     private LocalDateTime requestedAt;
 
@@ -51,6 +63,9 @@ public class NodePairingRequest {
     @Column(name = "processed_by")
     private String processedBy;
 
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
     @PrePersist
     protected void onCreate() {
         if (requestedAt == null) {
@@ -62,6 +77,17 @@ public class NodePairingRequest {
         if (pairingStatus == null) {
             pairingStatus = PairingStatus.PENDING;
         }
+        if (installationId == null) {
+            installationId = "default";
+        }
+        if (updatedAt == null) {
+            updatedAt = LocalDateTime.now();
+        }
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
     }
 
     public boolean isExpired() {
@@ -69,4 +95,3 @@ public class NodePairingRequest {
                 (pairingStatus == PairingStatus.PENDING && expiresAt != null && LocalDateTime.now().isAfter(expiresAt));
     }
 }
-

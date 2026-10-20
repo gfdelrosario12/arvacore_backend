@@ -26,6 +26,13 @@ public class PairingRequestResponse {
     private LocalDateTime processedAt;
     private String processedBy;
 
+    // Bridge & recovery metadata
+    private String action; // WAIT_FOR_APPROVAL, RESUME_OPERATION, PROVISION, PAIRED, REJECTED
+    private boolean paired;
+    private String deviceKeyId;
+    private String installationId;
+    private String operationalKeyId;
+
     // Recognition details
     private boolean recognized;
     private Long existingEdgeNodeId;
@@ -33,4 +40,3 @@ public class PairingRequestResponse {
     private Long existingZoneId;
     private String existingZoneName;
 }
-

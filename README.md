@@ -316,22 +316,29 @@ All REST endpoints are prefixed with `/api/v1/`.
 | `POST` | `/api/v1/nodes/pairing/reset` | Bulk or scoped pairing reset (`UNASSIGNED_ONLY`, `ALL_PAIRED`, `FACTORY_ALL`) | `ROLE_ADMIN` |
 | `GET` | `/api/v1/nodes/{id}/health` | Retrieve current health state (`HEALTHY`, `DEGRADED`, `CRITICAL`) | `ROLE_VIEWER`+ |
 
-### Node Pairing & Gateway Discovery (`/api/v1/pairing`)
+### Node Pairing Bridge & Device Authentication (`/api/v1/pairing`)
 
 | HTTP Method | Endpoint Path | Description | Access Role |
 | :--- | :--- | :--- | :---:|
-| `GET` | `/api/v1/pairing/requests` | List discovered node pairing requests (with 30m expiration) | `ROLE_OPERATOR`+ |
-| `POST` | `/api/v1/pairing/request` | Submit physical node pairing request from gateway / node | Public / Gateway |
+| `POST` | `/api/v1/pairing/requests` | Submit node pairing request (HMAC signed) with automatic already-paired detection & request deduplication | `ROLE_DEVICE_BOOTSTRAP` / PermitAll |
+| `GET` | `/api/v1/pairing/requests/pending` | List pending pairing requests awaiting operator approval | `ROLE_OPERATOR`+ |
+| `GET` | `/api/v1/pairing/requests` | Query all pairing requests or filter by `?status=PENDING` | `ROLE_OPERATOR`+ |
+| `GET` | `/api/v1/pairing/requests/{id}` | Retrieve individual pairing request details | `ROLE_OPERATOR`+ |
+| `GET` | `/api/v1/pairing/devices/{nodeId}/status` | Query active pairing status and recovery action for ESP32 hardware | Public / Device |
 | `POST` | `/api/v1/pairing/requests/{id}/approve` | Approve pairing request and assign field and monitoring zone | `ROLE_OPERATOR`+ |
 | `POST` | `/api/v1/pairing/requests/{id}/reject` | Reject pairing request with optional rejection reason | `ROLE_OPERATOR`+ |
-| `GET` | `/api/v1/pairing/status/{nodeId}` | Query pairing status for node hardware (returns REVOKED when unpaired) | Public / Gateway |
+| `POST` | `/api/v1/pairing/requests/{id}/provision` | Provision operational key pair for approved device (signed with bootstrap HMAC) | `ROLE_DEVICE_BOOTSTRAP` |
+| `POST` | `/api/v1/pairing/requests/{id}/complete` | Complete pairing handshake proving possession of operational key | `ROLE_DEVICE_OPERATIONAL` |
+| `POST` | `/api/v1/nodes/{id}/unpair` | Manual unpair action (revokes operational key, clears assignments) | `ROLE_OPERATOR`+ |
+| `POST` | `/api/v1/pairing/reset` | Global or scoped pairing reset | `ROLE_ADMIN` |
 
 > [!NOTE]
-> **Node Unpairing & Lifecycle Guarantees**:
-> - **Manual Unpairing**: Authorized operators and administrators can manually unpair nodes via `DELETE /api/v1/nodes/{nodeId}/pairing` or `POST /api/v1/nodes/{nodeId}/unpair`. This operation revokes pairing authorization, marks records as `REVOKED`, transitions the node to `UNREGISTERED`, disassociates monitoring points, and clears telemetry caches.
-> - **Offline Device Handling**: Unpairing takes effect immediately on the server even when the physical ESP32 node is offline. When an offline node reconnects, authorization revalidation via `/api/v1/pairing/status/{nodeId}` returns `REVOKED`, stopping local monitoring, while subsequent telemetry attempts are rejected (`400 Bad Request: NODE_NOT_ACTIVE`).
-> - **Permanent Records & Historical Integrity**: Unpairing does not delete the physical device identity (`nodeId`, MAC address) or historical sensor telemetry. Historical data remains accessible on dashboards and reports.
-> - **Re-Pairing Capability**: Unpaired nodes are eligible to re-enter pairing at any time via `POST /api/v1/pairing/request` and operator approval without requiring a firmware reflash.
+> **Node Pairing Bridge & Zero-Trust Device Security (`ARVA-HMAC-V1`)**:
+> - **Zero-Trust Device Authentication**: Every device interaction is validated via `ARVA-HMAC-V1` canonical request hashing, nonces, and timestamp skew checks ($\pm 120\text{s}$). Full contract specification is documented in [DEVICE_AUTH_CONTRACT.md](../DEVICE_AUTH_CONTRACT.md).
+> - **Mandatory Already-Paired Recovery**: When an active, paired ESP32 node submits a pairing request, the backend immediately returns `status: ALREADY_PAIRED`, `action: RESUME_OPERATION`, and `paired: true`, preventing redundant approval prompts and infinite pairing loops.
+> - **Pending Request Deduplication**: Re-pressing the pairing button while a request is pending (<30 minutes) reuses the existing active record without resetting the expiration timer or creating orphaned entries.
+> - **Operational Key Rotation**: Upon approval, the node requests an ephemeral 256-bit operational secret and completes a cryptographic handshake before telemetry is accepted.
+> - **Manual Unpairing**: Unpairing revokes operational credentials immediately in the database (`REVOKED`). Subsequent telemetry attempts fail with 401 Unauthorized (`DEVICE_CREDENTIAL_REVOKED`). Historical telemetry and calibration profiles are strictly preserved.
 
 
 
