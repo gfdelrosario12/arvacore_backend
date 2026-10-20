@@ -209,3 +209,4 @@ class DeviceHmacValidatorTest {
         assertEquals("ROLE_DEVICE_OPERATIONAL", result.role());
     }
 }
+

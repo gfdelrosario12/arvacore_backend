@@ -69,3 +69,4 @@ public class DeviceCredential {
         updatedAt = LocalDateTime.now();
     }
 }
+

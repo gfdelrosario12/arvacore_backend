@@ -18,3 +18,4 @@ public interface DeviceAuthNonceRepository extends JpaRepository<DeviceAuthNonce
     @Query("DELETE FROM DeviceAuthNonce n WHERE n.expiresAt < :now")
     void deleteExpiredNonces(@Param("now") LocalDateTime now);
 }
+

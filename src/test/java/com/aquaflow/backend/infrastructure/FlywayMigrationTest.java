@@ -12,13 +12,13 @@ public class FlywayMigrationTest {
     @DisplayName("Verify Flyway migrations validate and execute cleanly")
     public void shouldApplyMigrationsSuccessfully() {
         Flyway flyway = Flyway.configure()
-                .dataSource("jdbc:h2:mem:flyway_test;DB_CLOSE_DELAY=-1", "sa", "")
+                .dataSource("jdbc:h2:mem:flyway_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1", "sa", "")
                 .locations("classpath:db/migration")
                 .cleanDisabled(true)
                 .load();
 
         int applied = flyway.migrate().migrationsExecuted;
-        assertEquals(12, applied);
+        assertEquals(13, applied);
     }
 }
 

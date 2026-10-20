@@ -127,8 +127,7 @@ public class NodePairingController {
         return ResponseEntity.ok(nodePairingService.completePairing(id, request, actor));
     }
 
-    @PostMapping({"/nodes/{nodeId}/unpair", "/pairing/{nodeId}/unpair"})
-    @DeleteMapping("/nodes/{nodeId}/pairing")
+    @PostMapping("/pairing/{nodeId}/unpair")
     public ResponseEntity<NodeUnpairResponse> unpairNode(
             @PathVariable String nodeId,
             Authentication authentication) {

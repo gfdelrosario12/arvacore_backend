@@ -12,3 +12,4 @@ public interface DeviceCredentialRepository extends JpaRepository<DeviceCredenti
     Optional<DeviceCredential> findByBootstrapKeyId(String bootstrapKeyId);
     Optional<DeviceCredential> findByOperationalKeyId(String operationalKeyId);
 }
+

@@ -21,3 +21,4 @@ public class PairingProvisionResponse {
     private String action;
     private LocalDateTime expiresAt;
 }
+

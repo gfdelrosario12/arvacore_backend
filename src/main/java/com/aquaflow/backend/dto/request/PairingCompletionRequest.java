@@ -13,3 +13,4 @@ public class PairingCompletionRequest {
     private String operationalKeyId;
     private String notes;
 }
+

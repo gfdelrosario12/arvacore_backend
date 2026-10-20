@@ -215,3 +215,4 @@ class NodePairingBridgeServiceTest {
         assertNull(cred.getOperationalSecret());
     }
 }
+
