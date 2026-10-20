@@ -33,6 +33,9 @@ public class WebhookAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
         String uri = request.getRequestURI();
         return !(uri.startsWith("/api/v1/lora/webhook") || uri.startsWith("/api/v1/chirpstack/webhook"));
     }

@@ -42,6 +42,9 @@ public class GatewayAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
         String uri = request.getRequestURI();
         return !uri.startsWith("/api/v1/telemetry/")
                 && !uri.startsWith("/api/v1/pairing/request")

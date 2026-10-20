@@ -26,6 +26,9 @@ public class RateLimitingFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
         String uri = request.getRequestURI();
         return !(uri.startsWith("/api/v1/auth/login") || uri.startsWith("/api/v1/auth/register"));
     }
