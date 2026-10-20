@@ -7,6 +7,7 @@ import com.aquaflow.backend.entity.EdgeNode;
 import com.aquaflow.backend.entity.Field;
 import com.aquaflow.backend.entity.MonitoringPoint;
 import com.aquaflow.backend.entity.MonitoringZone;
+import com.aquaflow.backend.entity.NodeLifecycleState;
 import com.aquaflow.backend.infrastructure.exception.ResourceNotFoundException;
 import com.aquaflow.backend.infrastructure.exception.ValidationException;
 import com.aquaflow.backend.infrastructure.util.DtoMapper;
@@ -73,7 +74,10 @@ public class FieldTopologyServiceImpl implements FieldTopologyService {
 
         for (MonitoringZone zone : zones) {
             List<MonitoringPoint> points = monitoringPointRepository.findByMonitoringZoneId(zone.getId());
-            List<EdgeNode> nodes = edgeNodeRepository.findByMonitoringZoneId(zone.getId());
+            List<EdgeNode> nodes = edgeNodeRepository.findByMonitoringZoneId(zone.getId()).stream()
+                    .filter(n -> n.getLifecycleState() != NodeLifecycleState.UNREGISTERED &&
+                                 n.getLifecycleState() != NodeLifecycleState.DECOMMISSIONED)
+                    .toList();
 
             MonitoringZoneTopologyResponse zoneTopology = DtoMapper.toMonitoringZoneTopologyResponse(zone, points, nodes);
             if (zoneAggregationService != null) {

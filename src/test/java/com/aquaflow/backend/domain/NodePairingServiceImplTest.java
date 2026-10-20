@@ -468,4 +468,34 @@ class NodePairingServiceImplTest {
         assertEquals(0, response.getFailedCount());
         assertEquals(List.of("NODE-01", "NODE-02"), response.getResetNodeIds());
     }
+
+    @Test
+    @DisplayName("Reset all pairings without specific node IDs revokes all pending requests and detaches zones")
+    void testResetPairing_AllNodes_RevokesPendingAndClearsFieldAssignments() {
+        MonitoringZone zone = MonitoringZone.builder().id(99L).name("Zone A").build();
+        EdgeNode node1 = EdgeNode.builder().id(701L).nodeId("NODE-ALL-01").lifecycleState(NodeLifecycleState.ACTIVE).monitoringZone(zone).build();
+        EdgeNode node2 = EdgeNode.builder().id(702L).nodeId("NODE-ALL-02").lifecycleState(NodeLifecycleState.UNREGISTERED).monitoringZone(zone).build();
+
+        NodePairingRequest pendingReq = NodePairingRequest.builder().id(801L).nodeId("NODE-PENDING-01").pairingStatus(PairingStatus.PENDING).build();
+
+        when(edgeNodeRepository.findAll()).thenReturn(List.of(node1, node2));
+        when(edgeNodeRepository.findByNodeId("NODE-ALL-01")).thenReturn(Optional.of(node1));
+        when(edgeNodeRepository.findByNodeId("NODE-ALL-02")).thenReturn(Optional.of(node2));
+        when(pairingRequestRepository.findByPairingStatusOrderByRequestedAtDesc(PairingStatus.PENDING))
+                .thenReturn(List.of(pendingReq));
+        when(pairingRequestRepository.findAll()).thenReturn(List.of(pendingReq));
+
+        com.aquaflow.backend.dto.response.NodePairingResetResponse response =
+                nodePairingService.resetPairing(null, "ADMIN");
+
+        assertNotNull(response);
+        assertEquals(2, response.getTotalRequested());
+        assertEquals(2, response.getSucceededCount());
+        assertNull(node1.getMonitoringZone());
+        assertNull(node2.getMonitoringZone());
+        assertEquals(NodeLifecycleState.UNREGISTERED, node1.getLifecycleState());
+        assertEquals(NodeLifecycleState.UNREGISTERED, node2.getLifecycleState());
+        assertEquals(PairingStatus.REVOKED, pendingReq.getPairingStatus());
+        verify(pairingRequestRepository, atLeastOnce()).save(pendingReq);
+    }
 }

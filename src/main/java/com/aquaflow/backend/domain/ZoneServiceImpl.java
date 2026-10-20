@@ -7,6 +7,7 @@ import com.aquaflow.backend.dto.response.MonitoringZoneResponse;
 import com.aquaflow.backend.dto.response.ZoneResponse;
 import com.aquaflow.backend.entity.EdgeNode;
 import com.aquaflow.backend.entity.MonitoringZone;
+import com.aquaflow.backend.entity.NodeLifecycleState;
 import com.aquaflow.backend.entity.Zone;
 import com.aquaflow.backend.infrastructure.exception.ResourceNotFoundException;
 import com.aquaflow.backend.infrastructure.exception.ValidationException;
@@ -136,9 +137,13 @@ public class ZoneServiceImpl implements ZoneService {
     }
 
     private ZoneResponse toAwdZoneResponse(MonitoringZone mz) {
-        List<EdgeNode> nodes = edgeNodeRepository != null
+        List<EdgeNode> allNodes = edgeNodeRepository != null
                 ? edgeNodeRepository.findByMonitoringZoneId(mz.getId())
                 : Collections.emptyList();
+        List<EdgeNode> nodes = allNodes.stream()
+                .filter(n -> n.getLifecycleState() != NodeLifecycleState.UNREGISTERED &&
+                             n.getLifecycleState() != NodeLifecycleState.DECOMMISSIONED)
+                .toList();
         List<String> nodeIds = new ArrayList<>();
         Integer battery = null;
         for (EdgeNode n : nodes) {
@@ -258,8 +263,12 @@ public class ZoneServiceImpl implements ZoneService {
         MonitoringZoneResponse res = DtoMapper.toMonitoringZoneResponse(zone);
         if (edgeNodeRepository != null) {
             List<EdgeNode> nodes = edgeNodeRepository.findByMonitoringZoneId(zone.getId());
-            res.setAssignedNodeCount(nodes.size());
-            res.setAssignedNodeIds(nodes.stream().map(EdgeNode::getNodeId).collect(Collectors.toList()));
+            List<EdgeNode> activeNodes = nodes.stream()
+                    .filter(n -> n.getLifecycleState() != NodeLifecycleState.UNREGISTERED &&
+                                 n.getLifecycleState() != NodeLifecycleState.DECOMMISSIONED)
+                    .toList();
+            res.setAssignedNodeCount(activeNodes.size());
+            res.setAssignedNodeIds(activeNodes.stream().map(EdgeNode::getNodeId).collect(Collectors.toList()));
         } else {
             res.setAssignedNodeCount(0);
             res.setAssignedNodeIds(Collections.emptyList());

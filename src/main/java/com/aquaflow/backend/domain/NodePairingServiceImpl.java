@@ -497,6 +497,20 @@ public class NodePairingServiceImpl implements NodePairingService {
                 }
             }
 
+            // Close active assignment history record
+            if (nodeAssignmentHistoryRepository != null) {
+                try {
+                    var activeHistOpt = nodeAssignmentHistoryRepository.findActiveAssignment(node.getId());
+                    activeHistOpt.ifPresent(h -> {
+                        h.setUnassignedAt(now);
+                        h.setReason("Node forcefully unpaired");
+                        nodeAssignmentHistoryRepository.save(h);
+                    });
+                } catch (Exception e) {
+                    log.warn("Error closing assignment history for node {}: {}", cleanNodeId, e.getMessage());
+                }
+            }
+
             node.setMonitoringZone(null);
             edgeNodeRepository.save(node);
             log.info("Transitioned EdgeNode {} lifecycleState to UNREGISTERED", cleanNodeId);
@@ -539,7 +553,16 @@ public class NodePairingServiceImpl implements NodePairingService {
             }
         }
 
-        // 4. Audit Log
+        // 4. Update farmland operational status if field association was cleared
+        if (farmlandValidationService != null && fieldId != null) {
+            try {
+                farmlandValidationService.updateFarmlandOperationalStatus(fieldId);
+            } catch (Exception ex) {
+                log.warn("Could not update operational status for field {}: {}", fieldId, ex.getMessage());
+            }
+        }
+
+        // 5. Audit Log
         auditLogRepository.save(SystemAuditLog.builder()
                 .eventType("NODE_UNPAIRED")
                 .actor(effectiveActor)
@@ -598,11 +621,25 @@ public class NodePairingServiceImpl implements NodePairingService {
                     .toList();
         } else {
             targetNodeIds = edgeNodeRepository.findAll().stream()
-                    .filter(n -> n.getLifecycleState() != NodeLifecycleState.UNREGISTERED &&
-                                 n.getLifecycleState() != NodeLifecycleState.DECOMMISSIONED)
                     .map(EdgeNode::getNodeId)
+                    .filter(Objects::nonNull)
                     .distinct()
                     .toList();
+
+            // Revoke all pending pairing requests across the system
+            try {
+                List<NodePairingRequest> pendingRequests = pairingRequestRepository.findByPairingStatusOrderByRequestedAtDesc(PairingStatus.PENDING);
+                for (NodePairingRequest req : pendingRequests) {
+                    req.setPairingStatus(PairingStatus.REVOKED);
+                    req.setRejectionReason(reason);
+                    req.setProcessedAt(LocalDateTime.now());
+                    req.setProcessedBy(effectiveActor);
+                    pairingRequestRepository.save(req);
+                    systemEventPublisher.publishPairingRequestUpdated(req.getNodeId(), "REVOKED");
+                }
+            } catch (Exception e) {
+                log.warn("Failed to revoke pending pairing requests during reset: {}", e.getMessage());
+            }
         }
 
         List<String> succeeded = new ArrayList<>();

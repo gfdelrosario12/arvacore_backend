@@ -45,12 +45,17 @@ public class FarmlandValidationServiceImpl implements FarmlandValidationService 
         List<MonitoringZone> zones = monitoringZoneRepository.findByFieldIdAndIsArchivedFalse(fieldId);
         List<EdgeNode> allAssignedNodes = new ArrayList<>();
         for (MonitoringZone zone : zones) {
-            allAssignedNodes.addAll(edgeNodeRepository.findByMonitoringZoneId(zone.getId()));
+            allAssignedNodes.addAll(edgeNodeRepository.findByMonitoringZoneId(zone.getId()).stream()
+                    .filter(n -> n.getLifecycleState() != NodeLifecycleState.UNREGISTERED &&
+                                 n.getLifecycleState() != NodeLifecycleState.DECOMMISSIONED)
+                    .toList());
         }
 
         List<EdgeNode> allNodesInSystem = edgeNodeRepository.findAll();
         long unassignedCount = allNodesInSystem.stream()
-                .filter(n -> n.getMonitoringZone() == null)
+                .filter(n -> n.getMonitoringZone() == null &&
+                             n.getLifecycleState() != NodeLifecycleState.UNREGISTERED &&
+                             n.getLifecycleState() != NodeLifecycleState.DECOMMISSIONED)
                 .count();
 
         List<String> blocking = new ArrayList<>();
