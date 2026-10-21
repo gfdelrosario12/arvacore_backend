@@ -87,7 +87,6 @@ public class ZoneServiceImpl implements ZoneService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public ZoneResponse getZoneById(Long id) {
         java.util.Optional<Zone> zoneOpt = zoneRepository.findById(id);
         if (zoneOpt.isPresent()) {
@@ -108,7 +107,6 @@ public class ZoneServiceImpl implements ZoneService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Page<ZoneResponse> getAllZones(Pageable pageable) {
         if (zoneRepository.count() > 0) {
             return zoneRepository.findAll(pageable).map(DtoMapper::toZoneResponse);

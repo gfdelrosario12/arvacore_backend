@@ -188,7 +188,7 @@ public class ZoneAggregationServiceImpl implements ZoneAggregationService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ZoneTelemetryResponse getLatestZoneTelemetry(Long zoneId) {
         Optional<ZoneTelemetryAggregate> existing = zoneTelemetryAggregateRepository.findTopByZoneIdOrderByCalculatedAtDesc(zoneId);
 
