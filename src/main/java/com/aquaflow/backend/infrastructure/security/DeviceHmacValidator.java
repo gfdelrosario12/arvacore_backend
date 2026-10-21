@@ -151,9 +151,22 @@ public class DeviceHmacValidator {
                 httpMethod, requestPath, queryString, bodyBytes, timestampSeconds, nonce, nodeId, keyId
         );
 
-        // 5. Signature verification
+        // 5. Signature verification (accept exact header case or canonical DB keyId case)
         String expectedSignature = computeHmacSha256(secret, canonicalRequest);
-        if (!constantTimeSignatureMatch(signature, expectedSignature)) {
+        boolean matched = constantTimeSignatureMatch(signature, expectedSignature);
+        if (!matched) {
+            String canonicalDbKeyId = "ROLE_DEVICE_BOOTSTRAP".equals(role)
+                    ? credential.getBootstrapKeyId()
+                    : credential.getOperationalKeyId();
+            if (canonicalDbKeyId != null && !canonicalDbKeyId.equals(keyId)) {
+                String altCanonicalRequest = buildCanonicalRequest(
+                        httpMethod, requestPath, queryString, bodyBytes, timestampSeconds, nonce, nodeId, canonicalDbKeyId
+                );
+                String altExpectedSignature = computeHmacSha256(secret, altCanonicalRequest);
+                matched = constantTimeSignatureMatch(signature, altExpectedSignature);
+            }
+        }
+        if (!matched) {
             log.warn("Invalid HMAC signature for node {} key {}. Canonical request:\n{}", nodeId, keyId, canonicalRequest);
             return DeviceAuthResult.failure("DEVICE_SIGNATURE_INVALID", "Signature mismatch");
         }
