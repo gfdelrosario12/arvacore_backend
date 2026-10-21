@@ -36,6 +36,9 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
     private final TelemetryStreamService telemetryStreamService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AlertService alertService;
+
     // Frame Counter deduplication cache per node
     private final Map<String, Long> lastSeenFrameCounters = new ConcurrentHashMap<>();
 
@@ -461,6 +464,10 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
             metrics = new NodeHealthMetrics();
         }
 
+        String previousSoilHealth = metrics.getSoilSensorHealth();
+        String previousUltrasonicHealth = metrics.getUltrasonicSensorHealth();
+        HealthState previousHealthState = node.getHealthState();
+
         metrics.setLastHeartbeat(timestamp);
         metrics.setLastTelemetryAt(timestamp);
         metrics.setIsTelemetryStale(false);
@@ -502,6 +509,154 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         }
 
         edgeNodeRepository.save(node);
+
+        emitSensorTransitionNotifications(
+                node,
+                previousSoilHealth,
+                effectiveSoil,
+                previousUltrasonicHealth,
+                effectiveUltra,
+                previousHealthState,
+                node.getHealthState()
+        );
+    }
+
+    private void emitSensorTransitionNotifications(
+            EdgeNode node,
+            String prevSoil,
+            String currSoil,
+            String prevUltra,
+            String currUltra,
+            HealthState prevHealth,
+            HealthState currHealth
+    ) {
+        if (alertService == null || node == null) return;
+        try {
+            Long zoneId = node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null;
+            String zoneCode = node.getMonitoringZone() != null
+                    ? (node.getMonitoringZone().getCode() != null && !node.getMonitoringZone().getCode().isBlank()
+                        ? node.getMonitoringZone().getCode()
+                        : "Q" + node.getMonitoringZone().getId())
+                    : null;
+            Long fieldId = (node.getMonitoringZone() != null && node.getMonitoringZone().getField() != null)
+                    ? node.getMonitoringZone().getField().getId() : null;
+
+            boolean wasOffline = prevHealth == HealthState.OFFLINE;
+            if (wasOffline && currHealth != HealthState.OFFLINE) {
+                alertService.createNotification(
+                        "NODE_ONLINE",
+                        "Node Back Online: " + node.getNodeId(),
+                        String.format("Node %s resumed telemetry transmission.", node.getNodeId()),
+                        "INFO",
+                        "connectivity",
+                        node.getNodeId(),
+                        fieldId,
+                        zoneId,
+                        zoneCode,
+                        node.getNodeId(),
+                        "Node " + node.getNodeId(),
+                        zoneCode != null ? zoneCode : node.getNodeId(),
+                        "Verify incoming sensor readings in the ESP32 Telemetry Stream.",
+                        "NODE_ONLINE:" + node.getNodeId(),
+                        60,
+                        null
+                );
+            }
+
+            boolean prevSoilFailed = isSensorFailed(prevSoil);
+            boolean currSoilFailed = isSensorFailed(currSoil);
+            if (!prevSoilFailed && currSoilFailed) {
+                alertService.createNotification(
+                        "SOIL_SENSOR_FAILURE",
+                        "Soil Moisture Sensor Fault: " + node.getNodeId(),
+                        String.format("Soil moisture sensor on node %s reported %s. Transmitting fallback 0.00%% while keeping telemetry active.",
+                                node.getNodeId(), currSoil),
+                        "WARNING",
+                        "hardware",
+                        node.getNodeId(),
+                        fieldId,
+                        zoneId,
+                        zoneCode,
+                        node.getNodeId(),
+                        "Node " + node.getNodeId(),
+                        zoneCode != null ? zoneCode : node.getNodeId(),
+                        "Inspect soil moisture probe wiring and ADC connection on " + node.getNodeId() + ".",
+                        "SENSOR_FAULT:" + node.getNodeId() + ":SOIL:" + currSoil,
+                        120,
+                        null
+                );
+            } else if (prevSoilFailed && "OK".equalsIgnoreCase(currSoil)) {
+                alertService.createNotification(
+                        "SOIL_SENSOR_RECOVERED",
+                        "Soil Moisture Sensor Recovered: " + node.getNodeId(),
+                        String.format("Soil moisture sensor on node %s recovered from %s to OK.", node.getNodeId(), prevSoil),
+                        "INFO",
+                        "hardware",
+                        node.getNodeId(),
+                        fieldId,
+                        zoneId,
+                        zoneCode,
+                        node.getNodeId(),
+                        "Node " + node.getNodeId(),
+                        zoneCode != null ? zoneCode : node.getNodeId(),
+                        "Sensor readings are now included in zone averages and irrigation evaluations.",
+                        "SENSOR_RECOVERY:" + node.getNodeId() + ":SOIL",
+                        30,
+                        null
+                );
+            }
+
+            boolean prevUltraFailed = isSensorFailed(prevUltra);
+            boolean currUltraFailed = isSensorFailed(currUltra);
+            if (!prevUltraFailed && currUltraFailed) {
+                alertService.createNotification(
+                        "ULTRASONIC_SENSOR_FAILURE",
+                        "Ultrasonic Water Sensor Fault: " + node.getNodeId(),
+                        String.format("Ultrasonic water-level sensor on node %s reported %s. Transmitting fallback 0.00 cm while keeping telemetry active.",
+                                node.getNodeId(), currUltra),
+                        currSoilFailed ? "CRITICAL" : "WARNING",
+                        "hardware",
+                        node.getNodeId(),
+                        fieldId,
+                        zoneId,
+                        zoneCode,
+                        node.getNodeId(),
+                        "Node " + node.getNodeId(),
+                        zoneCode != null ? zoneCode : node.getNodeId(),
+                        "Inspect ultrasonic TRIG/ECHO pins and power supply on " + node.getNodeId() + ".",
+                        "SENSOR_FAULT:" + node.getNodeId() + ":ULTRA:" + currUltra,
+                        120,
+                        null
+                );
+            } else if (prevUltraFailed && "OK".equalsIgnoreCase(currUltra)) {
+                alertService.createNotification(
+                        "ULTRASONIC_SENSOR_RECOVERED",
+                        "Ultrasonic Water Sensor Recovered: " + node.getNodeId(),
+                        String.format("Ultrasonic water-level sensor on node %s recovered from %s to OK.", node.getNodeId(), prevUltra),
+                        "INFO",
+                        "hardware",
+                        node.getNodeId(),
+                        fieldId,
+                        zoneId,
+                        zoneCode,
+                        node.getNodeId(),
+                        "Node " + node.getNodeId(),
+                        zoneCode != null ? zoneCode : node.getNodeId(),
+                        "Water level measurements are now active for zone " + (zoneCode != null ? zoneCode : node.getNodeId()) + ".",
+                        "SENSOR_RECOVERY:" + node.getNodeId() + ":ULTRA",
+                        30,
+                        null
+                );
+            }
+        } catch (Exception e) {
+            log.warn("Failed to emit sensor transition notification for node {}: {}", node.getNodeId(), e.getMessage());
+        }
+    }
+
+    private boolean isSensorFailed(String status) {
+        return status != null && !status.isBlank()
+                && !"OK".equalsIgnoreCase(status)
+                && !"UNKNOWN".equalsIgnoreCase(status);
     }
 
     @Override

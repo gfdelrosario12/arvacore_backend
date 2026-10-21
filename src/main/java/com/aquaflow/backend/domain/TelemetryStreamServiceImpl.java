@@ -4,7 +4,6 @@ import com.aquaflow.backend.dto.response.TelemetryStreamEventResponse;
 import com.aquaflow.backend.dto.response.TelemetryStreamSummaryResponse;
 import com.aquaflow.backend.entity.TelemetryStreamEvent;
 import com.aquaflow.backend.infrastructure.event.SystemEventPublisher;
-import com.aquaflow.backend.infrastructure.web.RealtimeEventPublisherService;
 import com.aquaflow.backend.persistence.TelemetryStreamEventRepository;
 import com.aquaflow.backend.persistence.ZoneRepository;
 import jakarta.persistence.criteria.Predicate;
@@ -30,7 +29,6 @@ public class TelemetryStreamServiceImpl implements TelemetryStreamService {
 
     private final TelemetryStreamEventRepository telemetryStreamEventRepository;
     private final SystemEventPublisher systemEventPublisher;
-    private final RealtimeEventPublisherService realtimeEventPublisherService;
     private final ZoneRepository zoneRepository;
 
     @Override
@@ -140,7 +138,7 @@ public class TelemetryStreamServiceImpl implements TelemetryStreamService {
                 .distinctNodesCount(distinctNodes)
                 .failedOrRejectedCount(failedOrRejected)
                 .lastEventReceivedAt(latest.map(TelemetryStreamEvent::getReceivedAt).orElse(null))
-                .activeConnectionsCount(realtimeEventPublisherService.getActiveSessionCount())
+                .activeConnectionsCount((int) distinctNodes)
                 .build();
     }
 

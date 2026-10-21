@@ -74,17 +74,98 @@ public class DtoMapper {
     }
 
     public static AlertResponse toAlertResponse(Alert alert) {
+        if (alert == null) return null;
+        String severity = mapSeverity(alert.getAlertLevel());
+        String category = (alert.getCategory() != null && !alert.getCategory().isBlank())
+                ? alert.getCategory().toLowerCase()
+                : inferCategory(alert.getAlertType());
+        String title = (alert.getTitle() != null && !alert.getTitle().isBlank())
+                ? alert.getTitle()
+                : formatAlertTypeTitle(alert.getAlertType());
+        String source = (alert.getSourceName() != null && !alert.getSourceName().isBlank())
+                ? alert.getSourceName()
+                : (alert.getZoneCode() != null && !alert.getZoneCode().isBlank()
+                    ? alert.getZoneCode()
+                    : (alert.getDeviceId() != null && !alert.getDeviceId().isBlank()
+                        ? "Node " + alert.getDeviceId()
+                        : "Centralized Irrigation System"));
+        String targetScope = (alert.getTargetScope() != null && !alert.getTargetScope().isBlank())
+                ? alert.getTargetScope()
+                : (alert.getZoneCode() != null && !alert.getZoneCode().isBlank()
+                    ? alert.getZoneCode()
+                    : (alert.getDeviceId() != null && !alert.getDeviceId().isBlank()
+                        ? alert.getDeviceId()
+                        : "ENTIRE FIELD"));
+        String recommendedAction = (alert.getRecommendedAction() != null && !alert.getRecommendedAction().isBlank())
+                ? alert.getRecommendedAction()
+                : "Review system status in the ArvaLink dashboard.";
+
         return AlertResponse.builder()
                 .id(alert.getId())
                 .deviceId(alert.getDeviceId())
+                .nodeId(alert.getDeviceId())
                 .zoneId(alert.getZoneId())
+                .fieldId(alert.getFieldId())
+                .zoneCode(alert.getZoneCode())
                 .alertType(alert.getAlertType())
+                .eventType(alert.getAlertType())
                 .alertLevel(alert.getAlertLevel())
+                .severity(severity)
+                .category(category)
+                .title(title)
                 .message(alert.getMessage())
+                .description(alert.getMessage())
+                .source(source)
+                .targetScope(targetScope)
+                .actorId(alert.getActorId())
+                .recommendedAction(recommendedAction)
                 .acknowledged(alert.isAcknowledged())
+                .isRead(alert.isAcknowledged())
                 .createdAt(alert.getCreatedAt())
+                .timestamp(alert.getCreatedAt())
                 .acknowledgedAt(alert.getAcknowledgedAt())
+                .readAt(alert.getAcknowledgedAt())
+                .metadataJson(alert.getMetadataJson())
                 .build();
+    }
+
+    private static String mapSeverity(String alertLevel) {
+        if (alertLevel == null) return "info";
+        String upper = alertLevel.trim().toUpperCase();
+        if (upper.contains("CRIT") || upper.contains("ERR") || upper.contains("HIGH") || upper.contains("EMERG")) {
+            return "critical";
+        }
+        if (upper.contains("WARN") || upper.contains("MED") || upper.contains("DEGRAD")) {
+            return "warning";
+        }
+        return "info";
+    }
+
+    private static String inferCategory(String alertType) {
+        if (alertType == null) return "hardware";
+        String upper = alertType.toUpperCase();
+        if (upper.contains("IRRIG") || upper.contains("PUMP") || upper.contains("VALVE") || upper.contains("EMERGENCY_STOP") || upper.contains("SCHEDULE")) {
+            return "irrigation";
+        }
+        if (upper.contains("MOISTURE") || upper.contains("WATER_LEVEL") || upper.contains("CROP") || upper.contains("FIELD") || upper.contains("ZONE")) {
+            return "agronomic";
+        }
+        if (upper.contains("OFFLINE") || upper.contains("ONLINE") || upper.contains("SIGNAL") || upper.contains("GATEWAY") || upper.contains("CONNECT")) {
+            return "connectivity";
+        }
+        return "hardware";
+    }
+
+    private static String formatAlertTypeTitle(String alertType) {
+        if (alertType == null || alertType.isBlank()) return "System Notification";
+        String[] words = alertType.toLowerCase().split("_");
+        StringBuilder sb = new StringBuilder();
+        for (String w : words) {
+            if (w.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1));
+        }
+        return sb.toString();
     }
 
     public static UserResponse toUserResponse(User user) {

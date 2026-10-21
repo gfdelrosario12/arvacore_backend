@@ -24,6 +24,7 @@ public class IrrigationCommandStateMachineImpl implements IrrigationCommandState
     private final IrrigationCommandRecordRepository commandRecordRepository;
     private final CommandStateTransitionHistoryRepository historyRepository;
     private final AuditLogService auditLogService;
+    private AlertService alertService;
 
     private static final Map<CommandState, Set<CommandState>> ALLOWED_TRANSITIONS = new EnumMap<>(CommandState.class);
 
@@ -45,6 +46,11 @@ public class IrrigationCommandStateMachineImpl implements IrrigationCommandState
         this.commandRecordRepository = commandRecordRepository;
         this.historyRepository = historyRepository;
         this.auditLogService = auditLogService;
+    }
+
+    @Autowired(required = false)
+    public void setAlertService(AlertService alertService) {
+        this.alertService = alertService;
     }
 
     @Override
@@ -141,6 +147,27 @@ public class IrrigationCommandStateMachineImpl implements IrrigationCommandState
             auditLogService.logSystemEvent("COMMAND_STATE_TRANSITION", actorSource, "IrrigationCommand",
                     correlationId, correlationId, currentState.name(), targetState.name(),
                     Map.of("reason", reason != null ? reason : "", "metadata", metadataJson != null ? metadataJson : ""));
+        }
+
+        if (alertService != null && targetState == CommandState.FAILED) {
+            alertService.createNotification(
+                    "IRRIGATION_COMMAND_FAILED",
+                    "Irrigation Command Failed",
+                    "Irrigation command (" + record.getCommandType() + ") failed: " + (reason != null ? reason : "Unknown failure"),
+                    "CRITICAL",
+                    "Irrigation",
+                    record.getNodeId() != null ? String.valueOf(record.getNodeId()) : null,
+                    record.getTargetFieldId(),
+                    null,
+                    null,
+                    actorSource != null ? actorSource : "SYSTEM",
+                    "Irrigation Command Engine",
+                    "FIELD",
+                    "Check actuator connectivity and retry the irrigation command if needed.",
+                    "CMD_FAIL_" + correlationId,
+                    60,
+                    metadataJson
+            );
         }
 
         log.info("Transitioned command correlationId={} from {} to {}", correlationId, currentState, targetState);

@@ -6,7 +6,6 @@ import com.aquaflow.backend.dto.response.TelemetryStreamSummaryResponse;
 import com.aquaflow.backend.entity.TelemetryStreamEvent;
 import com.aquaflow.backend.entity.Zone;
 import com.aquaflow.backend.infrastructure.event.SystemEventPublisher;
-import com.aquaflow.backend.infrastructure.web.RealtimeEventPublisherService;
 import com.aquaflow.backend.persistence.TelemetryStreamEventRepository;
 import com.aquaflow.backend.persistence.ZoneRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,9 +39,6 @@ class TelemetryStreamServiceTest {
     private SystemEventPublisher systemEventPublisher;
 
     @Mock
-    private RealtimeEventPublisherService realtimeEventPublisherService;
-
-    @Mock
     private ZoneRepository zoneRepository;
 
     private TelemetryStreamServiceImpl service;
@@ -52,7 +48,6 @@ class TelemetryStreamServiceTest {
         service = new TelemetryStreamServiceImpl(
                 telemetryStreamEventRepository,
                 systemEventPublisher,
-                realtimeEventPublisherService,
                 zoneRepository
         );
     }
@@ -95,7 +90,6 @@ class TelemetryStreamServiceTest {
         LocalDateTime now = LocalDateTime.now();
         when(telemetryStreamEventRepository.findFirstByOrderByReceivedAtDesc())
                 .thenReturn(Optional.of(TelemetryStreamEvent.builder().receivedAt(now).build()));
-        when(realtimeEventPublisherService.getActiveSessionCount()).thenReturn(4);
 
         TelemetryStreamSummaryResponse summary = service.getSummary();
 
@@ -105,7 +99,7 @@ class TelemetryStreamServiceTest {
         assertEquals(3L, summary.getDistinctNodesCount());
         assertEquals(2L, summary.getFailedOrRejectedCount());
         assertEquals(now, summary.getLastEventReceivedAt());
-        assertEquals(4, summary.getActiveConnectionsCount());
+        assertEquals(3, summary.getActiveConnectionsCount());
     }
 
     @Test

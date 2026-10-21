@@ -39,6 +39,9 @@ public class UserServiceImpl implements UserService {
     private final com.aquaflow.backend.infrastructure.security.CustomUserDetailsService customUserDetailsService;
     private final AuditLogService auditLogService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AlertService alertService;
+
     public UserServiceImpl(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
@@ -103,6 +106,29 @@ public class UserServiceImpl implements UserService {
             auditLogService.logSystemEvent("USER_REGISTERED", saved.getUsername(), "USER", saved.getId().toString(), null, null, "REGISTERED", java.util.Map.of("role", saved.getRole(), "email", saved.getEmail()));
         } catch (Exception e) {
             log.debug("Audit log recording skipped: {}", e.getMessage());
+        }
+        if (alertService != null) {
+            try {
+                alertService.createNotification(
+                        "USER_REGISTERED",
+                        "User Account Registered: " + saved.getUsername(),
+                        String.format("User account '%s' (%s) was provisioned with role %s.",
+                                saved.getUsername(), saved.getEmail(), saved.getRole()),
+                        "INFO",
+                        "hardware",
+                        null,
+                        1L,
+                        null,
+                        null,
+                        saved.getUsername(),
+                        "System Administration",
+                        "ENTIRE FIELD",
+                        null,
+                        null,
+                        0,
+                        null
+                );
+            } catch (Exception ignored) {}
         }
 
         log.info("User registered: {}", saved.getUsername());
@@ -287,6 +313,29 @@ public class UserServiceImpl implements UserService {
             auditLogService.logSystemEvent("USER_UPDATED", callerName != null ? callerName : "SYSTEM", "USER", id.toString(), null, null, "UPDATED", java.util.Map.of("username", saved.getUsername(), "role", saved.getRole()));
         } catch (Exception e) {
             log.debug("Audit log recording skipped: {}", e.getMessage());
+        }
+        if (alertService != null) {
+            try {
+                alertService.createNotification(
+                        "USER_UPDATED",
+                        "User Account Updated: " + saved.getUsername(),
+                        String.format("User account '%s' profile/permissions were updated by %s (role: %s).",
+                                saved.getUsername(), callerName != null ? callerName : "SYSTEM", saved.getRole()),
+                        "INFO",
+                        "hardware",
+                        null,
+                        1L,
+                        null,
+                        null,
+                        callerName != null ? callerName : "SYSTEM",
+                        "System Administration",
+                        "ENTIRE FIELD",
+                        null,
+                        null,
+                        0,
+                        null
+                );
+            } catch (Exception ignored) {}
         }
 
         log.info("User updated: {}", id);

@@ -10,6 +10,7 @@ import com.aquaflow.backend.persistence.ZoneRepository;
 import com.aquaflow.backend.infrastructure.util.DtoMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -26,10 +27,16 @@ public class IrrigationScheduleServiceImpl implements IrrigationScheduleService 
 
     private final IrrigationScheduleRepository scheduleRepository;
     private final ZoneRepository zoneRepository;
+    private AlertService alertService;
 
     public IrrigationScheduleServiceImpl(IrrigationScheduleRepository scheduleRepository, ZoneRepository zoneRepository) {
         this.scheduleRepository = scheduleRepository;
         this.zoneRepository = zoneRepository;
+    }
+
+    @Autowired(required = false)
+    public void setAlertService(AlertService alertService) {
+        this.alertService = alertService;
     }
 
     @Override
@@ -50,6 +57,26 @@ public class IrrigationScheduleServiceImpl implements IrrigationScheduleService 
 
         IrrigationSchedule saved = scheduleRepository.save(schedule);
         log.info("Schedule created with id: {}", saved.getId());
+        if (alertService != null) {
+            alertService.createNotification(
+                    "IRRIGATION_SCHEDULE_CREATED",
+                    "Irrigation Schedule Created",
+                    "Created irrigation schedule for zone " + zone.getName() + " (Duration: " + request.getDuration() + " min).",
+                    "INFO",
+                    "Irrigation",
+                    null,
+                    null,
+                    zone.getId(),
+                    zone.getName(),
+                    "OPERATOR",
+                    "Irrigation Schedule Service",
+                    "ZONE",
+                    "Review upcoming irrigation cycles in the Field Dashboard.",
+                    null,
+                    0,
+                    null
+            );
+        }
         return DtoMapper.toScheduleResponse(saved);
     }
 
@@ -83,6 +110,26 @@ public class IrrigationScheduleServiceImpl implements IrrigationScheduleService 
 
         IrrigationSchedule saved = scheduleRepository.save(schedule);
         log.info("Schedule updated with id: {}", id);
+        if (alertService != null) {
+            alertService.createNotification(
+                    "IRRIGATION_SCHEDULE_UPDATED",
+                    "Irrigation Schedule Updated",
+                    "Updated irrigation schedule #" + id + " for zone " + zone.getName() + ".",
+                    "INFO",
+                    "Irrigation",
+                    null,
+                    null,
+                    zone.getId(),
+                    zone.getName(),
+                    "OPERATOR",
+                    "Irrigation Schedule Service",
+                    "ZONE",
+                    "Verify the updated irrigation schedule parameters.",
+                    null,
+                    0,
+                    null
+            );
+        }
         return DtoMapper.toScheduleResponse(saved);
     }
 
@@ -93,6 +140,26 @@ public class IrrigationScheduleServiceImpl implements IrrigationScheduleService 
         }
         scheduleRepository.deleteById(id);
         log.info("Schedule deleted with id: {}", id);
+        if (alertService != null) {
+            alertService.createNotification(
+                    "IRRIGATION_SCHEDULE_DELETED",
+                    "Irrigation Schedule Removed",
+                    "Deleted irrigation schedule #" + id + ".",
+                    "INFO",
+                    "Irrigation",
+                    null,
+                    null,
+                    null,
+                    null,
+                    "OPERATOR",
+                    "Irrigation Schedule Service",
+                    "ZONE",
+                    "No further action required.",
+                    null,
+                    0,
+                    null
+            );
+        }
     }
 
     @Override

@@ -42,6 +42,8 @@ public class ZoneServiceImpl implements ZoneService {
     private final com.aquaflow.backend.persistence.MonitoringPointRepository monitoringPointRepository;
     @org.springframework.context.annotation.Lazy
     private final FarmlandValidationService farmlandValidationService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AlertService alertService;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ZoneServiceImpl(ZoneRepository zoneRepository,
@@ -83,6 +85,28 @@ public class ZoneServiceImpl implements ZoneService {
 
         Zone saved = zoneRepository.save(zone);
         log.info("Zone created with id: {}", saved.getId());
+        if (alertService != null) {
+            try {
+                alertService.createNotification(
+                        "ZONE_CREATED",
+                        "Monitoring Zone Created: " + saved.getName(),
+                        String.format("Monitoring zone '%s' (%s) was created.", saved.getName(), saved.getCropType()),
+                        "INFO",
+                        "agronomic",
+                        null,
+                        null,
+                        saved.getId(),
+                        "Q" + saved.getId(),
+                        "OPERATOR",
+                        "Monitoring Quadrant Q" + saved.getId(),
+                        "Q" + saved.getId(),
+                        null,
+                        null,
+                        0,
+                        null
+                );
+            } catch (Exception ignored) {}
+        }
         return DtoMapper.toZoneResponse(saved);
     }
 
@@ -331,6 +355,29 @@ public class ZoneServiceImpl implements ZoneService {
                 log.warn("Could not update operational status for field {}: {}", fieldId, ex.getMessage());
             }
         }
+        if (alertService != null) {
+            try {
+                alertService.createNotification(
+                        "MONITORING_ZONE_CREATED",
+                        "Monitoring Zone Created: " + saved.getName(),
+                        String.format("Monitoring zone '%s' (%s) was added to farmland '%s'.",
+                                saved.getName(), saved.getCode(), field.getName()),
+                        "INFO",
+                        "agronomic",
+                        null,
+                        fieldId,
+                        saved.getId(),
+                        saved.getCode(),
+                        "OPERATOR",
+                        "Monitoring Quadrant " + saved.getCode(),
+                        saved.getCode(),
+                        "Assign an active ESP32 sensor node to begin monitoring this zone.",
+                        null,
+                        0,
+                        null
+                );
+            } catch (Exception ignored) {}
+        }
         return enrichZoneResponse(saved);
     }
 
@@ -364,6 +411,28 @@ public class ZoneServiceImpl implements ZoneService {
                 log.warn("Could not update operational status for field {}: {}", saved.getField().getId(), ex.getMessage());
             }
         }
+        if (alertService != null) {
+            try {
+                alertService.createNotification(
+                        "MONITORING_ZONE_UPDATED",
+                        "Monitoring Zone Updated: " + saved.getName(),
+                        String.format("Monitoring zone '%s' (%s) configuration was updated.", saved.getName(), saved.getCode()),
+                        "INFO",
+                        "agronomic",
+                        null,
+                        saved.getField() != null ? saved.getField().getId() : null,
+                        saved.getId(),
+                        saved.getCode(),
+                        "OPERATOR",
+                        "Monitoring Quadrant " + saved.getCode(),
+                        saved.getCode(),
+                        null,
+                        "ZONE_UPDATED:" + saved.getId(),
+                        5,
+                        null
+                );
+            } catch (Exception ignored) {}
+        }
         return enrichZoneResponse(saved);
     }
 
@@ -391,6 +460,30 @@ public class ZoneServiceImpl implements ZoneService {
         zone.setIsArchived(true);
         zone.setOperationalStatus("ARCHIVED");
         monitoringZoneRepository.save(zone);
+
+        if (alertService != null) {
+            try {
+                alertService.createNotification(
+                        "MONITORING_ZONE_REMOVED",
+                        "Monitoring Zone Removed: " + zone.getName(),
+                        String.format("Monitoring zone '%s' (%s) was archived and any assigned nodes were unassigned.",
+                                zone.getName(), zone.getCode()),
+                        "WARNING",
+                        "agronomic",
+                        null,
+                        zone.getField() != null ? zone.getField().getId() : null,
+                        zone.getId(),
+                        zone.getCode(),
+                        "OPERATOR",
+                        "Monitoring Quadrant " + zone.getCode(),
+                        zone.getCode(),
+                        "Reassign unassigned nodes to an active monitoring zone.",
+                        null,
+                        0,
+                        null
+                );
+            } catch (Exception ignored) {}
+        }
 
         if (farmlandValidationService != null && zone.getField() != null) {
             try {
@@ -523,6 +616,30 @@ public class ZoneServiceImpl implements ZoneService {
         zone.setIsArchived(true);
         zone.setOperationalStatus("ARCHIVED");
         monitoringZoneRepository.save(zone);
+
+        if (alertService != null) {
+            try {
+                alertService.createNotification(
+                        "MONITORING_ZONE_REMOVED",
+                        "Monitoring Zone Removed: " + zone.getName(),
+                        String.format("Monitoring zone '%s' (%s) was archived and any assigned nodes were unassigned.",
+                                zone.getName(), zone.getCode()),
+                        "WARNING",
+                        "agronomic",
+                        null,
+                        zone.getField() != null ? zone.getField().getId() : null,
+                        zone.getId(),
+                        zone.getCode(),
+                        "OPERATOR",
+                        "Monitoring Quadrant " + zone.getCode(),
+                        zone.getCode(),
+                        "Reassign unassigned nodes to an active monitoring zone.",
+                        null,
+                        0,
+                        null
+                );
+            } catch (Exception ignored) {}
+        }
 
         if (farmlandValidationService != null && zone.getField() != null) {
             try {

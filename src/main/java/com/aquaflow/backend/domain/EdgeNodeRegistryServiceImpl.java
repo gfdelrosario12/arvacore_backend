@@ -493,6 +493,18 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
         validateNodeActiveForOperations(id);
 
         EdgeNode updated = edgeNodeRepository.save(node);
+        if (systemEventPublisher != null) {
+            try {
+                Long fieldId = (updated.getMonitoringZone() != null && updated.getMonitoringZone().getField() != null)
+                        ? updated.getMonitoringZone().getField().getId() : null;
+                systemEventPublisher.publishNodeStatusChanged(
+                        updated.getNodeId(),
+                        fieldId,
+                        "CONFIG_ACTIVE",
+                        "TRANSMISSION_INTERVAL_" + (request != null ? request.getIntervalSeconds() : 3) + "S"
+                );
+            } catch (Exception ignored) {}
+        }
         return DtoMapper.toEdgeNodeResponse(updated);
     }
 

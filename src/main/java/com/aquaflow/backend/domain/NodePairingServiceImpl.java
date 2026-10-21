@@ -11,7 +11,6 @@ import com.aquaflow.backend.entity.*;
 import com.aquaflow.backend.infrastructure.event.SystemEventPublisher;
 import com.aquaflow.backend.infrastructure.exception.ResourceNotFoundException;
 import com.aquaflow.backend.infrastructure.exception.ValidationException;
-import com.aquaflow.backend.infrastructure.web.RealtimeEventPublisherService;
 import com.aquaflow.backend.persistence.EdgeNodeRepository;
 import com.aquaflow.backend.persistence.MonitoringPointRepository;
 import com.aquaflow.backend.persistence.MonitoringZoneRepository;
@@ -43,9 +42,6 @@ public class NodePairingServiceImpl implements NodePairingService {
     private final SystemAuditLogRepository auditLogRepository;
     private final SystemEventPublisher systemEventPublisher;
     private final com.aquaflow.backend.persistence.DeviceCredentialRepository deviceCredentialRepository;
-
-    @Autowired(required = false)
-    private RealtimeEventPublisherService realtimeEventPublisherService;
 
     @Autowired(required = false)
     private MonitoringZoneRepository monitoringZoneRepository;
@@ -1205,16 +1201,13 @@ public class NodePairingServiceImpl implements NodePairingService {
         }
 
         int wsSessions = 0;
-        if (realtimeEventPublisherService != null) {
-            wsSessions = realtimeEventPublisherService.getActiveSessionCount();
-        }
 
         String status = (!dbOk) ? "DOWN" : (!masterOn ? "DEGRADED" : "UP");
 
         Map<String, Object> details = new HashMap<>();
         details.put("masterEnabled", masterOn);
         details.put("dbConnectivity", dbOk);
-        details.put("activeWebSocketSessions", wsSessions);
+        details.put("syncMode", "REST_DATABASE_DRIVEN");
         details.put("totalEdgeNodes", totalNodes);
 
         return CoreHealthResponse.builder()

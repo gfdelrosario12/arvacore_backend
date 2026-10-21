@@ -43,6 +43,9 @@ public class FieldServiceImpl implements FieldService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.aquaflow.backend.infrastructure.event.SystemEventPublisher systemEventPublisher;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AlertService alertService;
+
     public FieldServiceImpl(FieldRepository fieldRepository) {
         this.fieldRepository = fieldRepository;
     }
@@ -75,6 +78,30 @@ public class FieldServiceImpl implements FieldService {
 
         Field saved = fieldRepository.save(field);
         log.info("Field created with id: {}", saved.getId());
+        if (alertService != null) {
+            try {
+                alertService.createNotification(
+                        "FIELD_CREATED",
+                        "Farmland Created: " + saved.getName(),
+                        String.format("Farmland '%s' (%.2f %s) was created.", saved.getName(),
+                                saved.getTotalArea() != null ? saved.getTotalArea() : 0.0,
+                                saved.getAreaUnit() != null ? saved.getAreaUnit() : "HECTARES"),
+                        "INFO",
+                        "agronomic",
+                        null,
+                        saved.getId(),
+                        null,
+                        null,
+                        "OPERATOR",
+                        "Farmland Management",
+                        "ENTIRE FIELD",
+                        "Configure monitoring zones and assign sensor nodes on the Field Dashboard.",
+                        null,
+                        0,
+                        null
+                );
+            } catch (Exception ignored) {}
+        }
         return DtoMapper.toFieldResponse(saved);
     }
 
@@ -124,6 +151,28 @@ public class FieldServiceImpl implements FieldService {
 
         Field saved = fieldRepository.save(field);
         log.info("Field updated with id: {}", id);
+        if (alertService != null) {
+            try {
+                alertService.createNotification(
+                        "FIELD_UPDATED",
+                        "Farmland Updated: " + saved.getName(),
+                        String.format("Farmland '%s' configuration and layout details were updated.", saved.getName()),
+                        "INFO",
+                        "agronomic",
+                        null,
+                        saved.getId(),
+                        null,
+                        null,
+                        "OPERATOR",
+                        "Farmland Management",
+                        "ENTIRE FIELD",
+                        null,
+                        "FIELD_UPDATED:" + saved.getId(),
+                        5,
+                        null
+                );
+            } catch (Exception ignored) {}
+        }
         return DtoMapper.toFieldResponse(saved);
     }
 
@@ -187,6 +236,29 @@ public class FieldServiceImpl implements FieldService {
         // 2. Delete the field
         fieldRepository.delete(field);
         log.info("Field '{}' (id: {}) successfully deleted and dependent nodes unassigned", field.getName(), id);
+
+        if (alertService != null) {
+            try {
+                alertService.createNotification(
+                        "FIELD_DELETED",
+                        "Farmland Removed: " + field.getName(),
+                        String.format("Farmland '%s' was removed and any assigned nodes were returned to unassigned inventory.", field.getName()),
+                        "WARNING",
+                        "agronomic",
+                        null,
+                        id,
+                        null,
+                        null,
+                        "OPERATOR",
+                        "Farmland Management",
+                        "ENTIRE FIELD",
+                        "Reassign available nodes to an active monitoring zone.",
+                        null,
+                        0,
+                        null
+                );
+            } catch (Exception ignored) {}
+        }
 
         // 3. Audit Log
         if (auditLogRepository != null) {
