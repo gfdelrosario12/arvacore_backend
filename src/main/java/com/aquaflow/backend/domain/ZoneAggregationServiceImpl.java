@@ -117,21 +117,34 @@ public class ZoneAggregationServiceImpl implements ZoneAggregationService {
                 }
             }
 
+            String soilHealth = node.getHealthMetrics() != null ? node.getHealthMetrics().getSoilSensorHealth() : null;
+            String ultrasonicHealth = node.getHealthMetrics() != null ? node.getHealthMetrics().getUltrasonicSensorHealth() : null;
+
             if (latestReading != null && !readings.isEmpty()) {
+                Set<SensorType> seenTypes = new HashSet<>();
                 for (TelemetryReading r : readings) {
                     if (r.getTimestamp().isAfter(now.minusMinutes(STALE_THRESHOLD_MINUTES))) {
-                        if (r.getSensorType() == SensorType.SOIL_MOISTURE) {
-                            soilMoistureValues.add(r.getValueNum());
-                        } else if (r.getSensorType() == SensorType.TEMPERATURE) {
+                        SensorType sType = r.getSensorType();
+                        if (sType != null && seenTypes.contains(sType)) {
+                            continue;
+                        }
+                        if (sType != null) {
+                            seenTypes.add(sType);
+                        }
+                        if (sType == SensorType.SOIL_MOISTURE) {
+                            if (TelemetryValidator.isHealthyMeasurement(SensorType.SOIL_MOISTURE, r.getValueNum(), soilHealth)) {
+                                soilMoistureValues.add(r.getValueNum());
+                            }
+                        } else if (sType == SensorType.TEMPERATURE) {
                             temperatureValues.add(r.getValueNum());
-                        } else if (r.getSensorType() == SensorType.HUMIDITY) {
+                        } else if (sType == SensorType.HUMIDITY) {
                             humidityValues.add(r.getValueNum());
-                        } else if (r.getSensorType() == SensorType.WATER_LEVEL_DISTANCE) {
+                        } else if (sType == SensorType.WATER_LEVEL_DISTANCE) {
                             // Ultrasonic sensor measures distance from sensor head to floating ball surface.
                             // Water Level = Calibrated Sensor-to-Bottom Distance - Measured Sensor-to-Ball Distance
                             // Maximum measurable water level is 3 feet (36 inches = 91.44 cm).
                             double distance = r.getValueNum();
-                            if (distance >= 5.0 && distance <= 450.0) {
+                            if (TelemetryValidator.isHealthyMeasurement(SensorType.WATER_LEVEL_DISTANCE, distance, ultrasonicHealth)) {
                                 double calibratedBottom = 101.6; // 40 inches default
                                 if (distance > calibratedBottom) {
                                     calibratedBottom = distance;
@@ -140,9 +153,9 @@ public class ZoneAggregationServiceImpl implements ZoneAggregationService {
                                 depth = Math.min(depth, 91.44); // 36 inches max
                                 waterLevelValues.add(Math.round(depth * 100.0) / 100.0);
                             }
-                        } else if (r.getSensorType() == SensorType.WATER_FLOW) {
+                        } else if (sType == SensorType.WATER_FLOW) {
                             continue;
-                        } else if (r.getSensorType() == SensorType.BATTERY_VOLTAGE) {
+                        } else if (sType == SensorType.BATTERY_VOLTAGE) {
                             batteryValues.add(r.getValueNum());
                         }
                     }

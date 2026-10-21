@@ -88,14 +88,14 @@ public class ZoneServiceImpl implements ZoneService {
 
     @Override
     public ZoneResponse getZoneById(Long id) {
-        java.util.Optional<Zone> zoneOpt = zoneRepository.findById(id);
-        if (zoneOpt.isPresent()) {
-            return DtoMapper.toZoneResponse(zoneOpt.get());
+        java.util.Optional<MonitoringZone> mzOpt = monitoringZoneRepository.findById(id);
+        if (mzOpt.isPresent()) {
+            return toAwdZoneResponse(mzOpt.get());
         }
 
-        MonitoringZone mz = monitoringZoneRepository.findById(id)
+        Zone zone = zoneRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Zone not found with id: " + id));
-        return toAwdZoneResponse(mz);
+        return DtoMapper.toZoneResponse(zone);
     }
 
     @Override
@@ -103,35 +103,53 @@ public class ZoneServiceImpl implements ZoneService {
     public MonitoringZoneResponse getMonitoringZoneById(Long id) {
         MonitoringZone zone = monitoringZoneRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Monitoring zone not found with id: " + id));
-        return DtoMapper.toMonitoringZoneResponse(zone);
+        return enrichZoneResponse(zone);
     }
 
     @Override
     public Page<ZoneResponse> getAllZones(Pageable pageable) {
+        List<MonitoringZone> activeMz = monitoringZoneRepository.findByIsArchivedFalse();
+        if (activeMz.isEmpty()) {
+            activeMz = monitoringZoneRepository.findAll().stream()
+                    .filter(z -> !Boolean.TRUE.equals(z.getIsArchived()))
+                    .collect(Collectors.toList());
+        }
+        if (!activeMz.isEmpty()) {
+            List<ZoneResponse> awdZones = activeMz.stream()
+                    .map(this::toAwdZoneResponse)
+                    .collect(Collectors.toList());
+            int start = (int) pageable.getOffset();
+            int end = Math.min((start + pageable.getPageSize()), awdZones.size());
+            if (start > awdZones.size()) {
+                return new org.springframework.data.domain.PageImpl<>(Collections.emptyList(), pageable, awdZones.size());
+            }
+            return new org.springframework.data.domain.PageImpl<>(awdZones.subList(start, end), pageable, awdZones.size());
+        }
         if (zoneRepository.count() > 0) {
             return zoneRepository.findAll(pageable).map(DtoMapper::toZoneResponse);
         }
-        List<ZoneResponse> awdZones = monitoringZoneRepository.findAll().stream()
-                .map(this::toAwdZoneResponse)
-                .collect(Collectors.toList());
-        int start = (int) pageable.getOffset();
-        int end = Math.min((start + pageable.getPageSize()), awdZones.size());
-        if (start > awdZones.size()) {
-            return new org.springframework.data.domain.PageImpl<>(Collections.emptyList(), pageable, awdZones.size());
-        }
-        return new org.springframework.data.domain.PageImpl<>(awdZones.subList(start, end), pageable, awdZones.size());
+        return new org.springframework.data.domain.PageImpl<>(Collections.emptyList(), pageable, 0);
     }
 
     @Override
     public List<ZoneResponse> getAllZones() {
+        List<MonitoringZone> activeMz = monitoringZoneRepository.findByIsArchivedFalse();
+        if (activeMz.isEmpty()) {
+            activeMz = monitoringZoneRepository.findAll().stream()
+                    .filter(z -> !Boolean.TRUE.equals(z.getIsArchived()))
+                    .collect(Collectors.toList());
+        }
+        if (!activeMz.isEmpty()) {
+            return activeMz.stream()
+                    .map(this::toAwdZoneResponse)
+                    .collect(Collectors.toList());
+        }
         if (zoneRepository.count() > 0) {
             return zoneRepository.findAll().stream()
                     .map(DtoMapper::toZoneResponse)
                     .collect(Collectors.toList());
         }
-        return monitoringZoneRepository.findAll().stream()
-                .map(this::toAwdZoneResponse)
-                .collect(Collectors.toList());
+        return Collections.emptyList();
     }
 
     private ZoneResponse toAwdZoneResponse(MonitoringZone mz) {
@@ -145,8 +163,9 @@ public class ZoneServiceImpl implements ZoneService {
         List<String> nodeIds = new ArrayList<>();
         Integer battery = null;
         for (EdgeNode n : nodes) {
-            if (n.getNodeId() != null) nodeIds.add(n.getNodeId());
-            nodeIds.add(String.valueOf(n.getId()));
+            if (n.getNodeId() != null && !n.getNodeId().isBlank()) {
+                nodeIds.add(n.getNodeId());
+            }
             if (battery == null && n.getHealthMetrics() != null && n.getHealthMetrics().getBatteryLevel() != null) {
                 battery = n.getHealthMetrics().getBatteryLevel().intValue();
             }
@@ -154,13 +173,13 @@ public class ZoneServiceImpl implements ZoneService {
 
         Double avgMoisture = null;
         Double waterLevel = null;
-        String status = "OPTIMAL";
-        Boolean isOnline = !nodes.isEmpty();
+        String status = nodes.isEmpty() ? "OFFLINE" : "OPTIMAL";
+        Boolean isOnline = false;
 
-        if (zoneAggregationService != null) {
+        if (zoneAggregationService != null && !nodes.isEmpty()) {
             try {
                 com.aquaflow.backend.dto.response.ZoneTelemetryResponse telemetry =
-                        zoneAggregationService.getLatestZoneTelemetry(mz.getId());
+                        zoneAggregationService.calculateAndCacheZoneTelemetry(mz.getId());
                 if (telemetry != null) {
                     avgMoisture = telemetry.getAvgSoilMoisture();
                     waterLevel = telemetry.getWaterLevel();
@@ -175,11 +194,7 @@ public class ZoneServiceImpl implements ZoneService {
         }
 
         String name = mz.getName() != null ? mz.getName() : "Zone " + mz.getId();
-        String code = "Q" + mz.getId();
-        if (name.contains("Q")) {
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile("Q[0-9]+").matcher(name);
-            if (m.find()) code = m.group();
-        }
+        String code = (mz.getCode() != null && !mz.getCode().isBlank()) ? mz.getCode() : "Q" + mz.getId();
 
         return ZoneResponse.builder()
                 .id(mz.getId())
@@ -188,11 +203,11 @@ public class ZoneServiceImpl implements ZoneService {
                 .fieldId(mz.getField() != null ? mz.getField().getId() : null)
                 .cropType(mz.getCropType())
                 .waterAllocationLimit(mz.getWaterAllocationLimitLiters())
-                .soilMoisturePercent(avgMoisture != null ? avgMoisture : mz.getTargetMoisturePercentage())
-                .waterLevelCm(waterLevel)
+                .soilMoisturePercent(avgMoisture != null ? avgMoisture : 0.0)
+                .waterLevelCm(waterLevel != null ? waterLevel : 0.0)
                 .assignedNodeIds(nodeIds)
                 .status(status)
-                .batteryPercent(battery != null ? battery : 95)
+                .batteryPercent(battery != null ? battery : 0)
                 .isOnline(isOnline)
                 .createdAt(mz.getCreatedAt())
                 .updatedAt(mz.getUpdatedAt())

@@ -28,12 +28,16 @@ public class TelemetryUplinkRequest {
     private Double batteryLevel;
     private Double batteryVoltage;
     private Double soilMoisturePercent;
+    private Double soilMoisture;
     private Double waterLevelDistance;
+    private Double waterLevel;
     private Double solarVoltage;
     private Integer rssiDbm;
     private Double snrDb;
     private String gatewayId;
     private Double frequency;
+    private String telemetryStatus;
+    private Map<String, String> sensorHealth;
     private Map<String, Double> measurements;
 
     public Long getSeq() { return seq; }
@@ -42,8 +46,16 @@ public class TelemetryUplinkRequest {
     public void setBatteryVoltage(Double batteryVoltage) { this.batteryVoltage = batteryVoltage; }
     public Double getSoilMoisturePercent() { return soilMoisturePercent; }
     public void setSoilMoisturePercent(Double soilMoisturePercent) { this.soilMoisturePercent = soilMoisturePercent; }
+    public Double getSoilMoisture() { return soilMoisture; }
+    public void setSoilMoisture(Double soilMoisture) { this.soilMoisture = soilMoisture; }
     public Double getWaterLevelDistance() { return waterLevelDistance; }
     public void setWaterLevelDistance(Double waterLevelDistance) { this.waterLevelDistance = waterLevelDistance; }
+    public Double getWaterLevel() { return waterLevel; }
+    public void setWaterLevel(Double waterLevel) { this.waterLevel = waterLevel; }
+    public String getTelemetryStatus() { return telemetryStatus; }
+    public void setTelemetryStatus(String telemetryStatus) { this.telemetryStatus = telemetryStatus; }
+    public Map<String, String> getSensorHealth() { return sensorHealth; }
+    public void setSensorHealth(Map<String, String> sensorHealth) { this.sensorHealth = sensorHealth; }
 
     public String getNodeId() { return nodeId; }
     public void setNodeId(String nodeId) { this.nodeId = nodeId; }

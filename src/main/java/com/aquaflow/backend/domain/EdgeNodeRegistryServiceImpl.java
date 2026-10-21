@@ -34,6 +34,8 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
     private final NodeAssignmentHistoryRepository nodeAssignmentHistoryRepository;
     private final FieldRepository fieldRepository;
     private final FarmlandValidationService farmlandValidationService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.aquaflow.backend.infrastructure.event.SystemEventPublisher systemEventPublisher;
 
     @org.springframework.beans.factory.annotation.Autowired
     public EdgeNodeRegistryServiceImpl(
@@ -281,13 +283,23 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
 
             log.info("Node {} successfully assigned to field {} and zone {}",
                     saved.getNodeId(), zone.getField() != null ? zone.getField().getName() : "N/A", zone.getName());
-            return DtoMapper.toEdgeNodeResponse(saved);
+            if (systemEventPublisher != null) {
+                try {
+                    systemEventPublisher.publishNodeStatusChanged(
+                            saved.getNodeId(),
+                            targetFieldId,
+                            previousZoneId != null ? "ZONE_" + previousZoneId : "UNASSIGNED",
+                            "ZONE_" + zone.getId()
+                    );
+                } catch (Exception ignored) {}
+            }
+            return DtoMapper.toEdgeNodeResponse(saved, telemetryReadingRepository.findByEdgeNodeIdOrderByTimestampDesc(saved.getId()));
         } else {
             // Unassign node from current zone
             node.setMonitoringZone(null);
             List<MonitoringPoint> points = monitoringPointRepository.findByEdgeNodeId(node.getId());
             for (MonitoringPoint p : points) {
-                p.setMonitoringZone(null);
+                p.setEdgeNode(null);
                 monitoringPointRepository.save(p);
             }
 
@@ -312,7 +324,17 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
             }
 
             log.info("Node {} unassigned from previous zone {}", saved.getNodeId(), previousZoneId);
-            return DtoMapper.toEdgeNodeResponse(saved);
+            if (systemEventPublisher != null) {
+                try {
+                    systemEventPublisher.publishNodeStatusChanged(
+                            saved.getNodeId(),
+                            previousFieldId,
+                            previousZoneId != null ? "ZONE_" + previousZoneId : "ASSIGNED",
+                            "UNASSIGNED"
+                    );
+                } catch (Exception ignored) {}
+            }
+            return DtoMapper.toEdgeNodeResponse(saved, telemetryReadingRepository.findByEdgeNodeIdOrderByTimestampDesc(saved.getId()));
         }
     }
 

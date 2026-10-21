@@ -61,7 +61,7 @@ public class EdgeNodeRegistryController {
         return ResponseEntity.ok(edgeNodeRegistryService.updateNode(id, request));
     }
 
-    @PutMapping("/{id}/field-assignment")
+    @PutMapping({"/{id}/field-assignment", "/{id}/assign-field"})
     public ResponseEntity<EdgeNodeResponse> assignNodeToField(
             @PathVariable String id,
             @Valid @RequestBody AssignNodeFieldRequest request) {

@@ -49,13 +49,18 @@ class ArvaCoreTelemetryIntegrityTest {
     @Test
     void validatorEnforcesSensorPhysicalLimits() {
         assertTrue(TelemetryValidator.isPlausible(SensorType.WATER_LEVEL_DISTANCE, 20.0));
-        assertFalse(TelemetryValidator.isPlausible(SensorType.WATER_LEVEL_DISTANCE, 5.0));
+        assertTrue(TelemetryValidator.isPlausible(SensorType.WATER_LEVEL_DISTANCE, 5.0));
+        assertTrue(TelemetryValidator.isPlausible(SensorType.WATER_LEVEL_DISTANCE, 0.0));
+        assertFalse(TelemetryValidator.isPlausible(SensorType.WATER_LEVEL_DISTANCE, 1.5));
         assertFalse(TelemetryValidator.isPlausible(SensorType.WATER_LEVEL_DISTANCE, 451.0));
         assertFalse(TelemetryValidator.isPlausible(SensorType.SOIL_MOISTURE, 120.0));
         assertFalse(TelemetryValidator.isPlausible(SensorType.HUMIDITY, -1.0));
         assertFalse(TelemetryValidator.isPlausible(SensorType.TEMPERATURE, Double.NaN));
         assertFalse(TelemetryValidator.isPlausible(SensorType.WATER_FLOW, null));
         assertTrue(TelemetryValidator.isPlausible(SensorType.WATER_FLOW, 0.0));
+        assertFalse(TelemetryValidator.isHealthyMeasurement(SensorType.WATER_LEVEL_DISTANCE, 0.0, "TIMEOUT"));
+        assertFalse(TelemetryValidator.isHealthyMeasurement(SensorType.SOIL_MOISTURE, 0.0, "DISCONNECTED"));
+        assertTrue(TelemetryValidator.isHealthyMeasurement(SensorType.SOIL_MOISTURE, 0.0, "OK"));
     }
 
     private GatewayAuthenticationFilter filter(String key) {

@@ -61,17 +61,29 @@ public class JsonPayloadDecoder implements PayloadDecoder {
         }
 
         // Support direct top-level fields sent by firmware if not in measurements map
-        if (!measurements.containsKey(SensorType.SOIL_MOISTURE) && request.getSoilMoisturePercent() != null) {
-            measurements.put(SensorType.SOIL_MOISTURE, request.getSoilMoisturePercent());
+        if (!measurements.containsKey(SensorType.SOIL_MOISTURE)) {
+            if (request.getSoilMoisturePercent() != null) {
+                measurements.put(SensorType.SOIL_MOISTURE, request.getSoilMoisturePercent());
+            } else if (request.getSoilMoisture() != null) {
+                measurements.put(SensorType.SOIL_MOISTURE, request.getSoilMoisture());
+            }
         }
         if (!measurements.containsKey(SensorType.BATTERY_VOLTAGE) && request.getBatteryVoltage() != null) {
             measurements.put(SensorType.BATTERY_VOLTAGE, request.getBatteryVoltage());
         }
-        if (!measurements.containsKey(SensorType.WATER_LEVEL_DISTANCE) && request.getWaterLevelDistance() != null) {
-            measurements.put(SensorType.WATER_LEVEL_DISTANCE, request.getWaterLevelDistance());
+        if (!measurements.containsKey(SensorType.WATER_LEVEL_DISTANCE)) {
+            if (request.getWaterLevelDistance() != null) {
+                measurements.put(SensorType.WATER_LEVEL_DISTANCE, request.getWaterLevelDistance());
+            } else if (request.getWaterLevel() != null && request.getWaterLevel() == 0.0) {
+                measurements.put(SensorType.WATER_LEVEL_DISTANCE, 0.0);
+            }
         }
 
         payload.setMeasurements(measurements);
+        payload.setTelemetryStatus(request.getTelemetryStatus());
+        if (request.getSensorHealth() != null) {
+            payload.setSensorHealth(new HashMap<>(request.getSensorHealth()));
+        }
         return payload;
     }
 }

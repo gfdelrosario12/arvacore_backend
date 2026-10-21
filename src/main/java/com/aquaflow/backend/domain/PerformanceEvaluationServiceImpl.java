@@ -28,6 +28,8 @@ public class PerformanceEvaluationServiceImpl implements PerformanceEvaluationSe
     private final EvaluationReferenceMeasurementRepository referenceRepository;
     private final IrrigationCommandRecordRepository commandRepository;
     private final CommandStateTransitionHistoryRepository transitionHistoryRepository;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.aquaflow.backend.persistence.EdgeNodeRepository edgeNodeRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -50,6 +52,19 @@ public class PerformanceEvaluationServiceImpl implements PerformanceEvaluationSe
         if (!"WATER_LEVEL".equalsIgnoreCase(request.getIndicatorType()) &&
             !"SOIL_MOISTURE".equalsIgnoreCase(request.getIndicatorType())) {
             throw new ValidationException("Indicator type must be either 'WATER_LEVEL' or 'SOIL_MOISTURE'");
+        }
+
+        if (edgeNodeRepository != null && request.getNodeId() != null) {
+            edgeNodeRepository.findByNodeId(request.getNodeId().trim()).ifPresent(node -> {
+                if (node.getHealthMetrics() != null) {
+                    String health = "WATER_LEVEL".equalsIgnoreCase(request.getIndicatorType())
+                            ? node.getHealthMetrics().getUltrasonicSensorHealth()
+                            : node.getHealthMetrics().getSoilSensorHealth();
+                    if (health != null && !"OK".equalsIgnoreCase(health) && !"UNKNOWN".equalsIgnoreCase(health)) {
+                        throw new ValidationException("Cannot record accuracy reference measurement while sensor health is " + health);
+                    }
+                }
+            });
         }
 
         double reported = request.getReportedValue();

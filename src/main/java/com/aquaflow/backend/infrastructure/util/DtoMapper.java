@@ -211,11 +211,55 @@ public class DtoMapper {
     public static EdgeNodeResponse toEdgeNodeResponse(EdgeNode node) {
         if (node == null) return null;
         Long zoneId = node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null;
+        String zoneCode = node.getMonitoringZone() != null
+                ? (node.getMonitoringZone().getCode() != null && !node.getMonitoringZone().getCode().isBlank()
+                    ? node.getMonitoringZone().getCode()
+                    : "Q" + node.getMonitoringZone().getId())
+                : null;
         String zoneName = node.getMonitoringZone() != null ? node.getMonitoringZone().getName() : null;
         Long fieldId = (node.getMonitoringZone() != null && node.getMonitoringZone().getField() != null)
                 ? node.getMonitoringZone().getField().getId() : null;
         String fieldName = (node.getMonitoringZone() != null && node.getMonitoringZone().getField() != null)
                 ? node.getMonitoringZone().getField().getName() : null;
+
+        NodeLifecycleState lifecycle = node.getLifecycleState();
+        String pairingStatus;
+        if (lifecycle == NodeLifecycleState.ACTIVE
+                || lifecycle == NodeLifecycleState.COMMISSIONED
+                || lifecycle == NodeLifecycleState.DEGRADED
+                || lifecycle == NodeLifecycleState.MAINTENANCE) {
+            pairingStatus = "PAIRED";
+        } else if (lifecycle == NodeLifecycleState.PROVISIONED) {
+            pairingStatus = "PENDING";
+        } else {
+            pairingStatus = "UNPAIRED";
+        }
+
+        String assignmentStatus;
+        if (zoneId != null) {
+            assignmentStatus = "ASSIGNED_TO_ZONE";
+        } else if (fieldId != null) {
+            assignmentStatus = "ASSIGNED_TO_FIELD";
+        } else {
+            assignmentStatus = "UNASSIGNED";
+        }
+
+        java.time.LocalDateTime lastHb = node.getHealthMetrics() != null ? node.getHealthMetrics().getLastHeartbeat() : null;
+        boolean online = (lifecycle == NodeLifecycleState.ACTIVE || lifecycle == NodeLifecycleState.COMMISSIONED)
+                && lastHb != null
+                && lastHb.isAfter(java.time.LocalDateTime.now().minusMinutes(2));
+        String connectivityStatus = online ? "ONLINE" : "OFFLINE";
+
+        String soilHealth = (node.getHealthMetrics() != null && node.getHealthMetrics().getSoilSensorHealth() != null)
+                ? node.getHealthMetrics().getSoilSensorHealth() : "UNKNOWN";
+        String ultrasonicHealth = (node.getHealthMetrics() != null && node.getHealthMetrics().getUltrasonicSensorHealth() != null)
+                ? node.getHealthMetrics().getUltrasonicSensorHealth() : "UNKNOWN";
+        String telemetryStatus = (node.getHealthMetrics() != null && node.getHealthMetrics().getTelemetryStatus() != null)
+                ? node.getHealthMetrics().getTelemetryStatus() : "UNKNOWN";
+
+        java.util.Map<String, String> sensorHealthMap = new java.util.LinkedHashMap<>();
+        sensorHealthMap.put("soilMoisture", soilHealth);
+        sensorHealthMap.put("ultrasonic", ultrasonicHealth);
 
         return EdgeNodeResponse.builder()
                 .id(node.getId())
@@ -229,11 +273,20 @@ public class DtoMapper {
                 .batteryLevel(node.getHealthMetrics() != null ? node.getHealthMetrics().getBatteryLevel() : null)
                 .solarVoltage(node.getHealthMetrics() != null ? node.getHealthMetrics().getSolarVoltage() : null)
                 .signalDbm(node.getHealthMetrics() != null ? node.getHealthMetrics().getSignalDbm() : null)
-                .lastHeartbeat(node.getHealthMetrics() != null ? node.getHealthMetrics().getLastHeartbeat() : null)
+                .lastHeartbeat(lastHb)
                 .monitoringZoneId(zoneId)
+                .monitoringZoneCode(zoneCode)
                 .monitoringZoneName(zoneName)
                 .fieldId(fieldId)
                 .fieldName(fieldName)
+                .pairingStatus(pairingStatus)
+                .assignmentStatus(assignmentStatus)
+                .connectivityStatus(connectivityStatus)
+                .isOnline(online)
+                .soilSensorHealth(soilHealth)
+                .ultrasonicSensorHealth(ultrasonicHealth)
+                .telemetryStatus(telemetryStatus)
+                .sensorHealth(sensorHealthMap)
                 .hardwareModel(node.getHardwareModel())
                 .firmwareVersion(node.getFirmwareVersion())
                 .version(node.getVersion())
@@ -252,17 +305,24 @@ public class DtoMapper {
                 } else if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.WATER_LEVEL_DISTANCE && res.getWaterLevelCm() == null) {
                     double distance = r.getValueNum();
                     res.setWaterLevelDistanceCm(Math.round(distance * 100.0) / 100.0);
-                    // Ultrasonic water-level calculation:
-                    // Water Level = Calibrated Sensor-to-Bottom Distance - Measured Sensor-to-Ball Distance
-                    // Default calibrated reference is 40 inches (101.6 cm), or adapts to physical installation if greater
-                    double calibratedBottom = 101.6;
-                    if (distance > calibratedBottom) {
-                        calibratedBottom = distance;
+                    String ultraHealth = res.getUltrasonicSensorHealth();
+                    boolean ultraFailed = distance <= 0.0
+                            || (ultraHealth != null && !"OK".equalsIgnoreCase(ultraHealth) && !"UNKNOWN".equalsIgnoreCase(ultraHealth));
+                    if (ultraFailed) {
+                        res.setWaterLevelCm(0.0);
+                    } else {
+                        // Ultrasonic water-level calculation:
+                        // Water Level = Calibrated Sensor-to-Bottom Distance - Measured Sensor-to-Ball Distance
+                        // Default calibrated reference is 40 inches (101.6 cm), or adapts to physical installation if greater
+                        double calibratedBottom = 101.6;
+                        if (distance > calibratedBottom) {
+                            calibratedBottom = distance;
+                        }
+                        double depth = Math.max(0.0, calibratedBottom - distance);
+                        // Max measurable water level is 3 feet (36 inches = 91.44 cm)
+                        depth = Math.min(depth, 91.44);
+                        res.setWaterLevelCm(Math.round(depth * 100.0) / 100.0);
                     }
-                    double depth = Math.max(0.0, calibratedBottom - distance);
-                    // Max measurable water level is 3 feet (36 inches = 91.44 cm)
-                    depth = Math.min(depth, 91.44);
-                    res.setWaterLevelCm(Math.round(depth * 100.0) / 100.0);
                 } else if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.BATTERY_VOLTAGE && res.getBatteryVoltage() == null) {
                     res.setBatteryVoltage(r.getValueNum());
                 }

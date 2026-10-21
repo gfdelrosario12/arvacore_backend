@@ -32,6 +32,9 @@ public class TelemetryStreamEventResponse {
     private Integer rssiDbm;
     private Double snrDb;
     private Integer readingsCount;
+    private String soilSensorHealth;
+    private String ultrasonicSensorHealth;
+    private String telemetryStatus;
     private String statusMessage;
     private String rawPayload;
 
@@ -56,6 +59,9 @@ public class TelemetryStreamEventResponse {
                 .rssiDbm(event.getRssiDbm())
                 .snrDb(event.getSnrDb())
                 .readingsCount(event.getReadingsCount())
+                .soilSensorHealth(event.getSoilSensorHealth())
+                .ultrasonicSensorHealth(event.getUltrasonicSensorHealth())
+                .telemetryStatus(event.getTelemetryStatus())
                 .statusMessage(event.getStatusMessage())
                 .rawPayload(event.getRawPayload())
                 .build();

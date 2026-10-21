@@ -519,6 +519,10 @@ public class NodePairingServiceImpl implements NodePairingService {
         if (existingOpt.isPresent()) {
             // Update node assignment/model/version
             EdgeNode existing = existingOpt.get();
+            if (request.getMonitoringZoneId() == null && existing.getMonitoringZone() != null) {
+                existing.setMonitoringZone(null);
+                edgeNodeRepository.save(existing);
+            }
             nodeResponse = edgeNodeRegistryService.updateNode(existing.getId(), request);
             log.info("Updated existing EdgeNode {} during pairing approval", existing.getNodeId());
         } else {
@@ -537,6 +541,43 @@ public class NodePairingServiceImpl implements NodePairingService {
             }
         } catch (Exception e) {
             log.info("Node commissioning during approval status: {}", e.getMessage());
+        }
+
+        // Synchronize assignment history & monitoring points
+        if (nodeAssignmentHistoryRepository != null && nodeResponse.getId() != null) {
+            try {
+                var activeHistOpt = nodeAssignmentHistoryRepository.findActiveAssignment(nodeResponse.getId());
+                if (request.getMonitoringZoneId() == null) {
+                    activeHistOpt.ifPresent(h -> {
+                        h.setUnassignedAt(LocalDateTime.now());
+                        h.setReason("Approved as unassigned");
+                        nodeAssignmentHistoryRepository.save(h);
+                    });
+                } else if (monitoringZoneRepository != null) {
+                    MonitoringZone zone = monitoringZoneRepository.findById(request.getMonitoringZoneId()).orElse(null);
+                    if (zone != null) {
+                        if (activeHistOpt.isPresent() && !Objects.equals(activeHistOpt.get().getMonitoringZoneId(), zone.getId())) {
+                            NodeAssignmentHistory prev = activeHistOpt.get();
+                            prev.setUnassignedAt(LocalDateTime.now());
+                            nodeAssignmentHistoryRepository.save(prev);
+                            activeHistOpt = Optional.empty();
+                        }
+                        if (activeHistOpt.isEmpty()) {
+                            nodeAssignmentHistoryRepository.save(NodeAssignmentHistory.builder()
+                                    .edgeNodeId(nodeResponse.getId())
+                                    .nodeId(nodeResponse.getNodeId())
+                                    .fieldId(zone.getField() != null ? zone.getField().getId() : null)
+                                    .monitoringZoneId(zone.getId())
+                                    .assignedAt(LocalDateTime.now())
+                                    .assignedBy(actor != null ? actor : "ADMIN")
+                                    .reason("Assigned during pairing approval")
+                                    .build());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Assignment history sync for node {}: {}", nodeResponse.getNodeId(), e.getMessage());
+            }
         }
 
         // If assigned to a monitoring zone, ensure a primary MonitoringPoint exists

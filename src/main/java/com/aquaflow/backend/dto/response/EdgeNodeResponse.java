@@ -31,9 +31,18 @@ public class EdgeNodeResponse {
     private Double waterLevelDistanceCm;
     private LocalDateTime lastHeartbeat;
     private Long monitoringZoneId;
+    private String monitoringZoneCode;
     private String monitoringZoneName;
     private Long fieldId;
     private String fieldName;
+    private String pairingStatus;
+    private String assignmentStatus;
+    private String connectivityStatus;
+    private Boolean isOnline;
+    private String soilSensorHealth;
+    private String ultrasonicSensorHealth;
+    private String telemetryStatus;
+    private java.util.Map<String, String> sensorHealth;
     private String hardwareModel;
     private String firmwareVersion;
     private Long version;

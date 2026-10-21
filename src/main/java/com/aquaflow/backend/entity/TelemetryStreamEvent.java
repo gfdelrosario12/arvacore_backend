@@ -75,6 +75,15 @@ public class TelemetryStreamEvent {
     @Builder.Default
     private Integer readingsCount = 0;
 
+    @Column(name = "soil_sensor_health", length = 32)
+    private String soilSensorHealth;
+
+    @Column(name = "ultrasonic_sensor_health", length = 32)
+    private String ultrasonicSensorHealth;
+
+    @Column(name = "telemetry_status", length = 32)
+    private String telemetryStatus;
+
     @Column(name = "status_message", length = 500)
     private String statusMessage;
 

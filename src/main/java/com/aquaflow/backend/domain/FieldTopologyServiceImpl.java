@@ -69,7 +69,9 @@ public class FieldTopologyServiceImpl implements FieldTopologyService {
         Field field = fieldRepository.findById(fieldId)
                 .orElseThrow(() -> new ResourceNotFoundException("Field not found with id: " + fieldId));
 
-        List<MonitoringZone> zones = monitoringZoneRepository.findByFieldId(fieldId);
+        List<MonitoringZone> zones = monitoringZoneRepository.findByFieldId(fieldId).stream()
+                .filter(z -> !Boolean.TRUE.equals(z.getIsArchived()))
+                .toList();
         List<MonitoringZoneTopologyResponse> zoneTopologies = new ArrayList<>();
 
         for (MonitoringZone zone : zones) {
@@ -82,7 +84,7 @@ public class FieldTopologyServiceImpl implements FieldTopologyService {
             MonitoringZoneTopologyResponse zoneTopology = DtoMapper.toMonitoringZoneTopologyResponse(zone, points, nodes);
             if (zoneAggregationService != null) {
                 try {
-                    zoneTopology.setTelemetrySummary(zoneAggregationService.getLatestZoneTelemetry(zone.getId()));
+                    zoneTopology.setTelemetrySummary(zoneAggregationService.calculateAndCacheZoneTelemetry(zone.getId()));
                 } catch (Exception e) {
                     log.warn("Failed to fetch zone telemetry summary for zoneId {}: {}", zone.getId(), e.getMessage());
                 }

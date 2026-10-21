@@ -27,7 +27,15 @@ public class DecodedTelemetryPayload {
 
     @Builder.Default
     private Map<SensorType, Double> measurements = new HashMap<>();
+    @Builder.Default
+    private Map<String, String> sensorHealth = new HashMap<>();
+    private String telemetryStatus;
     private String rawPayload;
+
+    public Map<String, String> getSensorHealth() { return sensorHealth; }
+    public void setSensorHealth(Map<String, String> sensorHealth) { this.sensorHealth = sensorHealth; }
+    public String getTelemetryStatus() { return telemetryStatus; }
+    public void setTelemetryStatus(String telemetryStatus) { this.telemetryStatus = telemetryStatus; }
 
     public String getNodeId() { return nodeId; }
     public void setNodeId(String nodeId) { this.nodeId = nodeId; }

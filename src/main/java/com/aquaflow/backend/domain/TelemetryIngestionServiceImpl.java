@@ -111,6 +111,8 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
             soilMoisture = decoded.getMeasurements().get(SensorType.SOIL_MOISTURE);
         } else if (request != null && request.getSoilMoisturePercent() != null) {
             soilMoisture = request.getSoilMoisturePercent();
+        } else if (request != null && request.getSoilMoisture() != null) {
+            soilMoisture = request.getSoilMoisture();
         }
 
         Double waterDistance = null;
@@ -120,12 +122,27 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
             waterDistance = request.getWaterLevelDistance();
         }
 
+        String soilHealth = extractSoilSensorHealth(decoded, request, soilMoisture);
+        String ultrasonicHealth = extractUltrasonicSensorHealth(decoded, request, waterDistance);
+        String telemetryStatus = resolveTelemetryStatus(decoded, request, soilHealth, ultrasonicHealth);
+
         Double waterLevelCm = null;
         if (request != null && request.getMeasurements() != null) {
             if (request.getMeasurements().containsKey("waterLevelCm")) {
                 waterLevelCm = request.getMeasurements().get("waterLevelCm");
             } else if (request.getMeasurements().containsKey("water_level_cm")) {
                 waterLevelCm = request.getMeasurements().get("water_level_cm");
+            }
+        }
+        if (waterLevelCm == null && request != null && request.getWaterLevel() != null) {
+            waterLevelCm = request.getWaterLevel();
+        }
+        if (waterDistance != null) {
+            if (waterDistance <= 0.0 || (ultrasonicHealth != null && !"OK".equalsIgnoreCase(ultrasonicHealth) && !"UNKNOWN".equalsIgnoreCase(ultrasonicHealth))) {
+                waterLevelCm = 0.0;
+            } else if (waterLevelCm == null) {
+                double depth = 101.6 - waterDistance;
+                waterLevelCm = Math.max(0.0, Math.min(91.44, depth));
             }
         }
 
@@ -145,7 +162,8 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
             recordStreamEvent(
                     "UNKNOWN", "REJECTED", "UNRESOLVED_NODE_IDENTITY: Node identification parameter missing",
                     rawPayloadStr, seqNum, decoded.getTimestamp(), null, null, null,
-                    soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb, 0
+                    soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb,
+                    soilHealth, ultrasonicHealth, telemetryStatus, 0
             );
             throw new ValidationException("UNRESOLVED_NODE_IDENTITY: Node identification parameter missing");
         }
@@ -154,7 +172,8 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
             recordStreamEvent(
                     targetIdentifier, "REJECTED", "MASTER_OFF: Master system is turned OFF. Telemetry ingestion is suspended.",
                     rawPayloadStr, seqNum, decoded.getTimestamp(), null, null, null,
-                    soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb, 0
+                    soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb,
+                    soilHealth, ultrasonicHealth, telemetryStatus, 0
             );
             throw new ValidationException("MASTER_OFF: Master system is turned OFF. Telemetry ingestion is suspended.");
         }
@@ -167,7 +186,8 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
             recordStreamEvent(
                     targetIdentifier, "REJECTED", e.getMessage(),
                     rawPayloadStr, seqNum, decoded.getTimestamp(), null, null, null,
-                    soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb, 0
+                    soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb,
+                    soilHealth, ultrasonicHealth, telemetryStatus, 0
             );
             throw e;
         }
@@ -175,7 +195,11 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         Field currentField = (node.getMonitoringZone() != null) ? node.getMonitoringZone().getField() : null;
         Long fieldId = currentField != null ? currentField.getId() : null;
         Long zoneId = (node.getMonitoringZone() != null) ? node.getMonitoringZone().getId() : null;
-        String zoneCode = (node.getMonitoringZone() != null) ? node.getMonitoringZone().getName() : null;
+        String zoneCode = (node.getMonitoringZone() != null)
+                ? (node.getMonitoringZone().getCode() != null && !node.getMonitoringZone().getCode().isBlank()
+                    ? node.getMonitoringZone().getCode()
+                    : node.getMonitoringZone().getName())
+                : null;
 
         // LoRaWAN Frame Counter Duplicate Detection
         Long fCnt = decoded.getFCnt();
@@ -185,7 +209,8 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
                 recordStreamEvent(
                         node.getNodeId(), "PROCESSED", "Duplicate frame counter " + fCnt + " ignored",
                         rawPayloadStr, seqNum, decoded.getTimestamp(), fieldId, zoneId, zoneCode,
-                        soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb, 0
+                        soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb,
+                        soilHealth, ultrasonicHealth, telemetryStatus, 0
                 );
                 return TelemetryUplinkResponse.builder()
                         .success(true)
@@ -235,7 +260,7 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         }
 
         // Update Node Health & Last-Seen Metrics
-        updateNodeHealthAndMetrics(node, decoded, validatedTimestamp);
+        updateNodeHealthAndMetrics(node, decoded, validatedTimestamp, soilHealth, ultrasonicHealth, telemetryStatus);
 
         try {
             systemEventPublisher.publishTelemetryReceived(node.getNodeId(), fieldId, count);
@@ -246,13 +271,17 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         String status = (rejected > 0 && count > 0) ? "PARTIALLY_PROCESSED"
                 : (rejected > 0 && count == 0 ? "REJECTED" : "PROCESSED");
         String message = rejected == 0
-                ? "Telemetry uplink ingested successfully"
+                ? ("OK".equalsIgnoreCase(telemetryStatus) || telemetryStatus == null
+                    ? "Telemetry uplink ingested successfully"
+                    : "Telemetry ingested with sensor status: " + telemetryStatus
+                      + " (soil=" + soilHealth + ", ultrasonic=" + ultrasonicHealth + ")")
                 : "Telemetry ingested; " + rejected + " out-of-range measurement(s) rejected";
 
         recordStreamEvent(
                 node.getNodeId(), status, message,
                 rawPayloadStr, seqNum, validatedTimestamp, fieldId, zoneId, zoneCode,
-                soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb, count
+                soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb,
+                soilHealth, ultrasonicHealth, telemetryStatus, count
         );
 
         return TelemetryUplinkResponse.builder()
@@ -282,6 +311,9 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
             Double batteryVoltage,
             Integer rssiDbm,
             Double snrDb,
+            String soilSensorHealth,
+            String ultrasonicSensorHealth,
+            String telemetryStatus,
             int readingsCount
     ) {
         try {
@@ -304,6 +336,9 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
                     .rssiDbm(rssiDbm)
                     .snrDb(snrDb)
                     .readingsCount(readingsCount)
+                    .soilSensorHealth(soilSensorHealth)
+                    .ultrasonicSensorHealth(ultrasonicSensorHealth)
+                    .telemetryStatus(telemetryStatus)
                     .statusMessage(message)
                     .rawPayload(rawPayload)
                     .build();
@@ -312,6 +347,74 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         } catch (Exception ex) {
             log.error("Failed to record telemetry stream event for node {}: {}", nodeId, ex.getMessage());
         }
+    }
+
+    private String extractSoilSensorHealth(DecodedTelemetryPayload decoded, TelemetryUplinkRequest request, Double soilMoisture) {
+        Map<String, String> healthMap = (decoded != null && decoded.getSensorHealth() != null && !decoded.getSensorHealth().isEmpty())
+                ? decoded.getSensorHealth()
+                : (request != null ? request.getSensorHealth() : null);
+        if (healthMap != null) {
+            for (Map.Entry<String, String> entry : healthMap.entrySet()) {
+                String k = entry.getKey() == null ? "" : entry.getKey().toLowerCase(Locale.ROOT);
+                if (k.contains("soil") && entry.getValue() != null && !entry.getValue().isBlank()) {
+                    return entry.getValue().trim().toUpperCase(Locale.ROOT);
+                }
+            }
+        }
+        if (soilMoisture != null && soilMoisture > 0.0) {
+            return "OK";
+        }
+        return soilMoisture != null ? "OK" : null;
+    }
+
+    private String extractUltrasonicSensorHealth(DecodedTelemetryPayload decoded, TelemetryUplinkRequest request, Double waterDistance) {
+        Map<String, String> healthMap = (decoded != null && decoded.getSensorHealth() != null && !decoded.getSensorHealth().isEmpty())
+                ? decoded.getSensorHealth()
+                : (request != null ? request.getSensorHealth() : null);
+        if (healthMap != null) {
+            for (Map.Entry<String, String> entry : healthMap.entrySet()) {
+                String k = entry.getKey() == null ? "" : entry.getKey().toLowerCase(Locale.ROOT);
+                if ((k.contains("ultrasonic") || k.contains("water") || k.contains("distance"))
+                        && entry.getValue() != null && !entry.getValue().isBlank()) {
+                    return entry.getValue().trim().toUpperCase(Locale.ROOT);
+                }
+            }
+        }
+        if (waterDistance != null) {
+            if (waterDistance <= 0.0) {
+                return "ERROR";
+            }
+            return "OK";
+        }
+        return null;
+    }
+
+    private String resolveTelemetryStatus(
+            DecodedTelemetryPayload decoded,
+            TelemetryUplinkRequest request,
+            String soilHealth,
+            String ultrasonicHealth
+    ) {
+        String explicit = (decoded != null && decoded.getTelemetryStatus() != null && !decoded.getTelemetryStatus().isBlank())
+                ? decoded.getTelemetryStatus().trim().toUpperCase(Locale.ROOT)
+                : (request != null && request.getTelemetryStatus() != null && !request.getTelemetryStatus().isBlank()
+                    ? request.getTelemetryStatus().trim().toUpperCase(Locale.ROOT)
+                    : null);
+        if (explicit != null) {
+            return explicit;
+        }
+        boolean soilFailed = soilHealth != null && !"OK".equalsIgnoreCase(soilHealth) && !"UNKNOWN".equalsIgnoreCase(soilHealth);
+        boolean ultraFailed = ultrasonicHealth != null && !"OK".equalsIgnoreCase(ultrasonicHealth) && !"UNKNOWN".equalsIgnoreCase(ultrasonicHealth);
+        if (soilFailed && ultraFailed) {
+            return "SENSOR_FAILURE";
+        }
+        if (soilFailed || ultraFailed) {
+            return "PARTIAL_FAILURE";
+        }
+        if ("OK".equalsIgnoreCase(soilHealth) || "OK".equalsIgnoreCase(ultrasonicHealth)) {
+            return "OK";
+        }
+        return null;
     }
 
     private EdgeNode resolveEdgeNode(String identifier) {
@@ -345,13 +448,22 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         return "UNIT";
     }
 
-    private void updateNodeHealthAndMetrics(EdgeNode node, DecodedTelemetryPayload decoded, LocalDateTime timestamp) {
+    private void updateNodeHealthAndMetrics(
+            EdgeNode node,
+            DecodedTelemetryPayload decoded,
+            LocalDateTime timestamp,
+            String soilHealth,
+            String ultrasonicHealth,
+            String telemetryStatus
+    ) {
         NodeHealthMetrics metrics = node.getHealthMetrics();
         if (metrics == null) {
             metrics = new NodeHealthMetrics();
         }
 
         metrics.setLastHeartbeat(timestamp);
+        metrics.setLastTelemetryAt(timestamp);
+        metrics.setIsTelemetryStale(false);
 
         if (decoded.getBatteryLevel() != null) {
             metrics.setBatteryLevel(decoded.getBatteryLevel());
@@ -362,9 +474,28 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         if (decoded.getSignalMetadata() != null && decoded.getSignalMetadata().getRssiDbm() != null) {
             metrics.setSignalDbm(decoded.getSignalMetadata().getRssiDbm());
         }
+        if (soilHealth != null) {
+            metrics.setSoilSensorHealth(soilHealth);
+        }
+        if (ultrasonicHealth != null) {
+            metrics.setUltrasonicSensorHealth(ultrasonicHealth);
+        }
+        if (telemetryStatus != null) {
+            metrics.setTelemetryStatus(telemetryStatus);
+        }
 
         node.setHealthMetrics(metrics);
-        if (metrics.getBatteryLevel() != null && metrics.getBatteryLevel() < 15.0) {
+
+        String effectiveSoil = metrics.getSoilSensorHealth();
+        String effectiveUltra = metrics.getUltrasonicSensorHealth();
+        boolean soilFailed = effectiveSoil != null && !"OK".equalsIgnoreCase(effectiveSoil) && !"UNKNOWN".equalsIgnoreCase(effectiveSoil);
+        boolean ultraFailed = effectiveUltra != null && !"OK".equalsIgnoreCase(effectiveUltra) && !"UNKNOWN".equalsIgnoreCase(effectiveUltra);
+
+        if (soilFailed && ultraFailed) {
+            node.setHealthState(HealthState.CRITICAL);
+        } else if (soilFailed || ultraFailed) {
+            node.setHealthState(HealthState.WARNING);
+        } else if (metrics.getBatteryLevel() != null && metrics.getBatteryLevel() < 15.0) {
             node.setHealthState(HealthState.WARNING);
         } else {
             node.setHealthState(HealthState.HEALTHY);

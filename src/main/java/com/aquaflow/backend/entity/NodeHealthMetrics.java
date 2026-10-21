@@ -39,5 +39,14 @@ public class NodeHealthMetrics {
 
     @Column(name = "last_telemetry_at")
     private LocalDateTime lastTelemetryAt;
+
+    @Column(name = "soil_sensor_health", length = 32)
+    private String soilSensorHealth;
+
+    @Column(name = "ultrasonic_sensor_health", length = 32)
+    private String ultrasonicSensorHealth;
+
+    @Column(name = "telemetry_status", length = 32)
+    private String telemetryStatus;
 }
 
