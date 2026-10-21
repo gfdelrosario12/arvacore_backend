@@ -34,3 +34,4 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_stream_node_received ON telemetry_strea
 CREATE INDEX IF NOT EXISTS idx_edge_nodes_zone_lifecycle ON edge_nodes(monitoring_zone_id, lifecycle_state);
 CREATE INDEX IF NOT EXISTS idx_node_pairing_status_req_at ON node_pairing_requests(pairing_status, requested_at DESC);
 CREATE INDEX IF NOT EXISTS idx_node_pairing_node_req_at ON node_pairing_requests(node_id, requested_at DESC);
+
