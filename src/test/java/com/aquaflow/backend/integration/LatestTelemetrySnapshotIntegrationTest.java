@@ -1,8 +1,11 @@
 package com.aquaflow.backend.integration;
 
 import com.aquaflow.backend.domain.EdgeNodeRegistryService;
+import com.aquaflow.backend.domain.TelemetryIngestionService;
+import com.aquaflow.backend.dto.request.TelemetryUplinkRequest;
 import com.aquaflow.backend.dto.response.NodeLatestTelemetryResponse;
 import com.aquaflow.backend.dto.response.NodeLatestTelemetrySnapshotResponse;
+import com.aquaflow.backend.dto.response.TelemetryUplinkResponse;
 import com.aquaflow.backend.entity.*;
 import com.aquaflow.backend.persistence.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,6 +35,9 @@ public class LatestTelemetrySnapshotIntegrationTest {
 
     @Autowired
     private EdgeNodeRegistryService edgeNodeRegistryService;
+
+    @Autowired
+    private TelemetryIngestionService telemetryIngestionService;
 
     @Autowired
     private EdgeNodeRepository edgeNodeRepository;
@@ -201,5 +208,82 @@ public class LatestTelemetrySnapshotIntegrationTest {
                 .orElseThrow();
         // Only the newest reading is surfaced, never the historical series.
         assertThat(first.getSoilMoisturePercent()).isEqualTo(54.0);
+    }
+
+    /**
+     * Verifies the complete ESP32 → backend → database → read-API path: a real uplink is
+     * ingested and the dashboard snapshot has to reflect it immediately, and has to follow
+     * the newest uplink after a second transmission.
+     */
+    @Test
+    void testLatestSnapshot_FollowsRealTelemetryUplinks() {
+        TelemetryUplinkResponse first = telemetryIngestionService.ingestUplink(
+                TelemetryUplinkRequest.builder()
+                        .nodeId("SNAP-001")
+                        .batteryLevel(91.0)
+                        .batteryVoltage(4.05)
+                        .timestamp(LocalDateTime.now())
+                        .measurements(Map.of(
+                                "SOIL_MOISTURE", 48.0,
+                                "WATER_LEVEL_DISTANCE", 40.0,
+                                "TEMPERATURE", 27.5
+                        ))
+                        .build());
+        assertThat(first.isSuccess()).isTrue();
+
+        NodeLatestTelemetryResponse afterFirst = snapshotFor("SNAP-001");
+        assertThat(afterFirst.getSoilMoisturePercent()).isEqualTo(48.0);
+        assertThat(afterFirst.getWaterLevelDistanceCm()).isEqualTo(40.0);
+        assertThat(afterFirst.getHasTelemetry()).isTrue();
+
+        TelemetryUplinkResponse second = telemetryIngestionService.ingestUplink(
+                TelemetryUplinkRequest.builder()
+                        .nodeId("SNAP-001")
+                        .batteryLevel(90.0)
+                        .batteryVoltage(4.02)
+                        .timestamp(LocalDateTime.now())
+                        .measurements(Map.of(
+                                "SOIL_MOISTURE", 12.5,
+                                "WATER_LEVEL_DISTANCE", 55.0
+                        ))
+                        .build());
+        assertThat(second.isSuccess()).isTrue();
+
+        NodeLatestTelemetryResponse afterSecond = snapshotFor("SNAP-001");
+        assertThat(afterSecond.getSoilMoisturePercent()).isEqualTo(12.5);
+        assertThat(afterSecond.getWaterLevelDistanceCm()).isEqualTo(55.0);
+        // The snapshot timestamp moves forward with the newest uplink.
+        assertThat(afterSecond.getLastTelemetryAt())
+                .isAfterOrEqualTo(afterFirst.getLastTelemetryAt());
+    }
+
+    @Test
+    void testLatestSnapshot_ReportsZeroWithoutTreatingItAsMissing() {
+        TelemetryUplinkResponse response = telemetryIngestionService.ingestUplink(
+                TelemetryUplinkRequest.builder()
+                        .nodeId("SNAP-002")
+                        .batteryLevel(70.0)
+                        .timestamp(LocalDateTime.now())
+                        .measurements(Map.of(
+                                "SOIL_MOISTURE", 0.0,
+                                "WATER_LEVEL_DISTANCE", 0.0
+                        ))
+                        .build());
+        assertThat(response.isSuccess()).isTrue();
+
+        NodeLatestTelemetryResponse snapshot = snapshotFor("SNAP-002");
+        assertThat(snapshot.getSoilMoisturePercent()).isEqualTo(0.0);
+        assertThat(snapshot.getWaterLevelDistanceCm()).isEqualTo(0.0);
+        assertThat(snapshot.getWaterLevelCm()).isEqualTo(0.0);
+        assertThat(snapshot.getHasTelemetry()).isTrue();
+    }
+
+    private NodeLatestTelemetryResponse snapshotFor(String nodeId) {
+        return edgeNodeRegistryService.getLatestTelemetrySnapshot(List.of(nodeId))
+                .getNodes()
+                .stream()
+                .filter(n -> nodeId.equals(n.getNodeId()))
+                .findFirst()
+                .orElseThrow();
     }
 }
