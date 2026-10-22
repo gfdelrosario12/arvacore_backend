@@ -35,3 +35,18 @@ SET monitoring_zone_id = NULL,
 WHERE monitoring_zone_id IN (1, 2)
   AND node_id NOT IN ('ARVANODE-001', 'ARVANODE-002');
 
+
+-- 5. Harmonize operational and bootstrap key IDs to match firmware convention
+UPDATE device_credentials
+SET bootstrap_key_id = 'bootstrap-ARVANODE-001',
+    operational_key_id = 'key-ARVANODE-001',
+    credential_state = 'OPERATIONAL',
+    updated_at = CURRENT_TIMESTAMP
+WHERE node_id = 'ARVANODE-001';
+
+UPDATE device_credentials
+SET bootstrap_key_id = 'bootstrap-ARVANODE-002',
+    operational_key_id = 'key-ARVANODE-002',
+    credential_state = 'OPERATIONAL',
+    updated_at = CURRENT_TIMESTAMP
+WHERE node_id = 'ARVANODE-002';
