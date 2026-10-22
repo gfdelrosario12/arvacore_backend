@@ -95,6 +95,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/system/health").hasAnyRole("ADMIN", "OPERATOR", "SUPERVISOR")
                         .requestMatchers("/api/v1/chirpstack/webhook/**", "/api/v1/lora/webhook/**").hasAnyRole("EDGE_NODE", "OPERATOR", "ADMIN")
                         .requestMatchers("/api/v1/audit/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/irrigation/pending-command/**", "/api/v1/irrigation/ack/**").hasAnyRole("GATEWAY", "ADMIN", "OPERATOR")
                         .requestMatchers("/api/v1/irrigation/emergency-stop", "/api/v1/irrigation/manual/**").hasAnyRole("ADMIN", "OPERATOR")
                         .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/v1/nodes/*/pairing", "/api/v1/nodes/*/unpair").hasAnyRole("ADMIN", "OPERATOR")
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/nodes/*/unpair").hasAnyRole("ADMIN", "OPERATOR")

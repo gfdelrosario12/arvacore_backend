@@ -48,7 +48,9 @@ public class GatewayAuthenticationFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
         return !uri.startsWith("/api/v1/telemetry/")
                 && !uri.startsWith("/api/v1/pairing/request")
-                && !uri.startsWith("/api/v1/pairing/status");
+                && !uri.startsWith("/api/v1/pairing/status")
+                && !uri.startsWith("/api/v1/irrigation/pending-command/")
+                && !uri.startsWith("/api/v1/irrigation/ack/");
     }
 
     @Override
