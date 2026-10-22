@@ -1,3 +1,4 @@
+-- TEST-ONLY H2-compatible equivalent of main V18 (main V18 is Postgres-only and already applied in production; do not change it).
 -- Migration V18: Fixed Two-Node Operational Credentials & Telemetry Setup
 -- Promotes ARVANODE-001 and ARVANODE-002 directly to OPERATIONAL state
 -- Re-links any telemetry from historical node aliases to ARVANODE-001
