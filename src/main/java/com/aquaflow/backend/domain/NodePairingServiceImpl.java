@@ -1128,9 +1128,11 @@ public class NodePairingServiceImpl implements NodePairingService {
         String zoneName = (nodeOpt.isPresent() && nodeOpt.get().getMonitoringZone() != null)
                 ? nodeOpt.get().getMonitoringZone().getName() : null;
 
-        PairingStatus status = req.isExpired() ? PairingStatus.EXPIRED : req.getPairingStatus();
+        // Completed pairing relationships for ACTIVE nodes never expire automatically
+        PairingStatus status = (req.isExpired() && req.getPairingStatus() != PairingStatus.PAIRED && req.getPairingStatus() != PairingStatus.ALREADY_PAIRED)
+                ? PairingStatus.EXPIRED : req.getPairingStatus();
         boolean isPaired = status == PairingStatus.PAIRED || status == PairingStatus.ALREADY_PAIRED ||
-                (nodeOpt.isPresent() && nodeOpt.get().getLifecycleState() == NodeLifecycleState.ACTIVE && status == PairingStatus.APPROVED);
+                (nodeOpt.isPresent() && nodeOpt.get().getLifecycleState() == NodeLifecycleState.ACTIVE);
 
         String action;
         if (isPaired) {
