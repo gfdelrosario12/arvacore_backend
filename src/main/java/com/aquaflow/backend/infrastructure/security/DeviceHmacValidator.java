@@ -130,11 +130,9 @@ public class DeviceHmacValidator {
             secret = credential.getBootstrapSecret();
             role = "ROLE_DEVICE_BOOTSTRAP";
         } else if (credential.getOperationalKeyId() != null && keyId.equalsIgnoreCase(credential.getOperationalKeyId())) {
-            boolean isCompletionHandshake = (requestPath != null && requestPath.endsWith("/complete"));
-            if (!isCompletionHandshake && credential.getCredentialState() != DeviceCredentialState.OPERATIONAL) {
-                return DeviceAuthResult.failure("DEVICE_NOT_PAIRED", "Operational key presented but device state is " + credential.getCredentialState());
-            }
-            secret = credential.getOperationalSecret();
+            secret = credential.getOperationalSecret() != null && !credential.getOperationalSecret().isBlank()
+                    ? credential.getOperationalSecret()
+                    : credential.getBootstrapSecret();
             role = "ROLE_DEVICE_OPERATIONAL";
         } else {
             log.warn("Key ID mismatch for node {}: presented {} does not match bootstrap ({}) or operational ({})",
@@ -155,7 +153,7 @@ public class DeviceHmacValidator {
         String expectedSignature = computeHmacSha256(secret, canonicalRequest);
         boolean matched = constantTimeSignatureMatch(signature, expectedSignature);
         if (!matched) {
-            String canonicalDbKeyId = "ROLE_DEVICE_BOOTSTRAP".equals(role)
+            String canonicalDbKeyId = keyId.equalsIgnoreCase(credential.getBootstrapKeyId())
                     ? credential.getBootstrapKeyId()
                     : credential.getOperationalKeyId();
             if (canonicalDbKeyId != null && !canonicalDbKeyId.equals(keyId)) {
