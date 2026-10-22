@@ -37,10 +37,16 @@ public class ThresholdEvaluationServiceImpl implements ThresholdEvaluationServic
     private static final Map<String, String> lastCommandTypeMap = new ConcurrentHashMap<>();
 
     // Track last notified sensor baseline values per node for significant-change detection
-    private static final double SOIL_CHANGE_THRESHOLD_PCT = 5.0;
-    private static final double WATER_LEVEL_CHANGE_THRESHOLD_CM = 2.0;
+    private static final double SOIL_CHANGE_THRESHOLD_PCT = 10.0;
+    private static final double WATER_LEVEL_CHANGE_THRESHOLD_CM = 10.0;
+    private static final double SOIL_MOISTURE_CRITICAL = 20.0;
+    private static final double SOIL_MOISTURE_RECOVERY = 30.0;
+    private static final double ULTRASONIC_CRITICAL_CM = 10.0;
+    private static final double ULTRASONIC_RECOVERY_CM = 15.0;
     private static final Map<String, Double> lastNotifiedSoilMap = new ConcurrentHashMap<>();
     private static final Map<String, Double> lastNotifiedWaterMap = new ConcurrentHashMap<>();
+    private static final Map<String, Boolean> nodeSoilCriticalState = new ConcurrentHashMap<>();
+    private static final Map<String, Boolean> nodeWaterCriticalState = new ConcurrentHashMap<>();
 
     @Autowired
     public ThresholdEvaluationServiceImpl(
@@ -128,55 +134,119 @@ public class ThresholdEvaluationServiceImpl implements ThresholdEvaluationServic
             return;
         }
 
-        // 2b. Significant-change notifications (only from healthy sensors, non-zero readings)
+        // 2b. Significant-change notifications & Critical/Recovery transitions (only from healthy sensors, non-zero readings)
         if (alertService != null && soilMoisture > 0 && waterLevelCm >= 0) {
             String nodeKey = node.getNodeId();
             String zoneName = node.getMonitoringZone() != null ? node.getMonitoringZone().getCode() : nodeKey;
 
-            Double prevSoil = lastNotifiedSoilMap.get(nodeKey);
-            if (prevSoil != null) {
-                double soilDiff = soilMoisture - prevSoil;
-                if (Math.abs(soilDiff) >= SOIL_CHANGE_THRESHOLD_PCT) {
-                    String dir = soilDiff > 0 ? "rose" : "dropped";
-                    String sev = Math.abs(soilDiff) >= 15 ? "WARNING" : "INFO";
-                    alertService.createNotification(
-                        "SOIL_MOISTURE_CHANGE",
-                        String.format("Soil Moisture %s by %.1f%%", dir, Math.abs(soilDiff)),
-                        String.format("Soil moisture on node %s (%s) %s from %.1f%% to %.1f%% (Δ%.1f%%).",
-                            nodeKey, zoneName, dir, prevSoil, soilMoisture, soilDiff),
-                        sev, "agronomic", nodeKey, fieldId,
-                        node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null,
-                        zoneName, "THRESHOLD_ENGINE", "ArvaCore Threshold Monitor",
-                        "ZONE", "Monitor soil moisture trends.",
-                        "SOIL_CHANGE:" + nodeKey, 60, null
-                    );
+            // Soil critical / recovery transitions
+            boolean wasSoilCritical = Boolean.TRUE.equals(nodeSoilCriticalState.get(nodeKey));
+            if (!wasSoilCritical && soilMoisture <= SOIL_MOISTURE_CRITICAL) {
+                nodeSoilCriticalState.put(nodeKey, true);
+                alertService.createNotification(
+                    "SOIL_CRITICAL",
+                    "Soil Moisture Critical: " + String.format("%.1f%%", soilMoisture),
+                    String.format("Critical soil dryness detected on %s (%s): %.1f%% (<= %.1f%%). Irrigation needed.",
+                        nodeKey, zoneName, soilMoisture, SOIL_MOISTURE_CRITICAL),
+                    "CRITICAL", "agronomic", nodeKey, fieldId,
+                    node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null,
+                    zoneName, "THRESHOLD_ENGINE", "ArvaCore Autonomous AWD Engine",
+                    "ZONE", "Initiate irrigation reflood immediately.",
+                    "SOIL_CRIT:" + nodeKey, 30, null
+                );
+                lastNotifiedSoilMap.put(nodeKey, soilMoisture);
+            } else if (wasSoilCritical && soilMoisture >= SOIL_MOISTURE_RECOVERY) {
+                nodeSoilCriticalState.put(nodeKey, false);
+                alertService.createNotification(
+                    "SOIL_RECOVERED",
+                    "Soil Moisture Recovered: " + String.format("%.1f%%", soilMoisture),
+                    String.format("Soil moisture on %s (%s) recovered to %.1f%% (>= %.1f%% safe threshold).",
+                        nodeKey, zoneName, soilMoisture, SOIL_MOISTURE_RECOVERY),
+                    "SUCCESS", "agronomic", nodeKey, fieldId,
+                    node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null,
+                    zoneName, "THRESHOLD_ENGINE", "ArvaCore Autonomous AWD Engine",
+                    "ZONE", "Moisture restored.",
+                    "SOIL_REC:" + nodeKey, 30, null
+                );
+                lastNotifiedSoilMap.put(nodeKey, soilMoisture);
+            } else {
+                Double prevSoil = lastNotifiedSoilMap.get(nodeKey);
+                if (prevSoil != null) {
+                    double soilDiff = soilMoisture - prevSoil;
+                    if (Math.abs(soilDiff) >= SOIL_CHANGE_THRESHOLD_PCT) {
+                        String dir = soilDiff > 0 ? "rose" : "dropped";
+                        String sev = soilMoisture <= SOIL_MOISTURE_CRITICAL ? "CRITICAL" : (Math.abs(soilDiff) >= 15 ? "WARNING" : "INFO");
+                        alertService.createNotification(
+                            "SOIL_MOISTURE_CHANGE",
+                            String.format("Soil Moisture %s by %.1f%%", dir, Math.abs(soilDiff)),
+                            String.format("Soil moisture on node %s (%s) %s from %.1f%% to %.1f%% (Δ%.1f%%).",
+                                nodeKey, zoneName, dir, prevSoil, soilMoisture, soilDiff),
+                            sev, "agronomic", nodeKey, fieldId,
+                            node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null,
+                            zoneName, "THRESHOLD_ENGINE", "ArvaCore Threshold Monitor",
+                            "ZONE", "Monitor soil moisture trends.",
+                            "SOIL_CHANGE:" + nodeKey, 30, null
+                        );
+                        lastNotifiedSoilMap.put(nodeKey, soilMoisture);
+                    }
+                } else {
                     lastNotifiedSoilMap.put(nodeKey, soilMoisture);
                 }
-            } else {
-                lastNotifiedSoilMap.put(nodeKey, soilMoisture);
             }
 
-            Double prevWater = lastNotifiedWaterMap.get(nodeKey);
-            if (prevWater != null) {
-                double waterDiff = waterLevelCm - prevWater;
-                if (Math.abs(waterDiff) >= WATER_LEVEL_CHANGE_THRESHOLD_CM) {
-                    String dir = waterDiff > 0 ? "rose" : "dropped";
-                    String sev = waterLevelCm < 1.0 ? "CRITICAL" : (Math.abs(waterDiff) >= 5 ? "WARNING" : "INFO");
-                    alertService.createNotification(
-                        "WATER_LEVEL_CHANGE",
-                        String.format("Water Level %s by %.1f cm", dir, Math.abs(waterDiff)),
-                        String.format("Water level on node %s (%s) %s from %.1f cm to %.1f cm (Δ%.1f cm).",
-                            nodeKey, zoneName, dir, prevWater, waterLevelCm, waterDiff),
-                        sev, "agronomic", nodeKey, fieldId,
-                        node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null,
-                        zoneName, "THRESHOLD_ENGINE", "ArvaCore Threshold Monitor",
-                        "ZONE", "Monitor water level trends.",
-                        "WATER_CHANGE:" + nodeKey, 60, null
-                    );
+            // Ultrasonic critical / recovery transitions
+            boolean wasWaterCritical = Boolean.TRUE.equals(nodeWaterCriticalState.get(nodeKey));
+            if (!wasWaterCritical && waterLevelCm <= ULTRASONIC_CRITICAL_CM) {
+                nodeWaterCriticalState.put(nodeKey, true);
+                alertService.createNotification(
+                    "WATER_LEVEL_CRITICAL",
+                    "Water Level Critical: " + String.format("%.1f cm", waterLevelCm),
+                    String.format("Critical water level deficiency on %s (%s): %.1f cm (<= %.1f cm).",
+                        nodeKey, zoneName, waterLevelCm, ULTRASONIC_CRITICAL_CM),
+                    "CRITICAL", "agronomic", nodeKey, fieldId,
+                    node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null,
+                    zoneName, "THRESHOLD_ENGINE", "ArvaCore Autonomous AWD Engine",
+                    "ZONE", "Reflood field.",
+                    "WATER_CRIT:" + nodeKey, 30, null
+                );
+                lastNotifiedWaterMap.put(nodeKey, waterLevelCm);
+            } else if (wasWaterCritical && waterLevelCm >= ULTRASONIC_RECOVERY_CM) {
+                nodeWaterCriticalState.put(nodeKey, false);
+                alertService.createNotification(
+                    "WATER_LEVEL_RECOVERED",
+                    "Water Level Recovered: " + String.format("%.1f cm", waterLevelCm),
+                    String.format("Water level on %s (%s) recovered to %.1f cm (>= %.1f cm safe depth).",
+                        nodeKey, zoneName, waterLevelCm, ULTRASONIC_RECOVERY_CM),
+                    "SUCCESS", "agronomic", nodeKey, fieldId,
+                    node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null,
+                    zoneName, "THRESHOLD_ENGINE", "ArvaCore Autonomous AWD Engine",
+                    "ZONE", "Field depth normal.",
+                    "WATER_REC:" + nodeKey, 30, null
+                );
+                lastNotifiedWaterMap.put(nodeKey, waterLevelCm);
+            } else {
+                Double prevWater = lastNotifiedWaterMap.get(nodeKey);
+                if (prevWater != null) {
+                    double waterDiff = waterLevelCm - prevWater;
+                    if (Math.abs(waterDiff) >= WATER_LEVEL_CHANGE_THRESHOLD_CM) {
+                        String dir = waterDiff > 0 ? "rose" : "dropped";
+                        String sev = waterLevelCm <= ULTRASONIC_CRITICAL_CM ? "CRITICAL" : (Math.abs(waterDiff) >= 15 ? "WARNING" : "INFO");
+                        alertService.createNotification(
+                            "WATER_LEVEL_CHANGE",
+                            String.format("Water Level %s by %.1f cm", dir, Math.abs(waterDiff)),
+                            String.format("Water level on node %s (%s) %s from %.1f cm to %.1f cm (Δ%.1f cm).",
+                                nodeKey, zoneName, dir, prevWater, waterLevelCm, waterDiff),
+                            sev, "agronomic", nodeKey, fieldId,
+                            node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null,
+                            zoneName, "THRESHOLD_ENGINE", "ArvaCore Threshold Monitor",
+                            "ZONE", "Monitor water level trends.",
+                            "WATER_CHANGE:" + nodeKey, 30, null
+                        );
+                        lastNotifiedWaterMap.put(nodeKey, waterLevelCm);
+                    }
+                } else {
                     lastNotifiedWaterMap.put(nodeKey, waterLevelCm);
                 }
-            } else {
-                lastNotifiedWaterMap.put(nodeKey, waterLevelCm);
             }
         }
         // 3. Rule Evaluation:
