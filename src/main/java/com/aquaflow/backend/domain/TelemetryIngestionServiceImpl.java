@@ -39,6 +39,9 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private AlertService alertService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ThresholdEvaluationService thresholdEvaluationService;
+
     // Frame Counter deduplication cache per node
     private final Map<String, Long> lastSeenFrameCounters = new ConcurrentHashMap<>();
 
@@ -264,6 +267,16 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
 
         // Update Node Health & Last-Seen Metrics
         updateNodeHealthAndMetrics(node, decoded, validatedTimestamp, soilHealth, ultrasonicHealth, telemetryStatus);
+
+        // Evaluate automated irrigation thresholds on valid telemetry
+        if (thresholdEvaluationService != null) {
+            try {
+                thresholdEvaluationService.evaluateTelemetryThresholds(
+                        node, soilMoisture, waterLevelCm, soilHealth, ultrasonicHealth, telemetryStatus);
+            } catch (Exception e) {
+                // Safeguard against threshold evaluation failures interrupting ingestion
+            }
+        }
 
         try {
             systemEventPublisher.publishTelemetryReceived(node.getNodeId(), fieldId, count);
