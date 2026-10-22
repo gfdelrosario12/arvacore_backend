@@ -36,6 +36,12 @@ public class ThresholdEvaluationServiceImpl implements ThresholdEvaluationServic
     private static final Map<String, LocalDateTime> lastCommandTimeMap = new ConcurrentHashMap<>();
     private static final Map<String, String> lastCommandTypeMap = new ConcurrentHashMap<>();
 
+    // Track last notified sensor baseline values per node for significant-change detection
+    private static final double SOIL_CHANGE_THRESHOLD_PCT = 5.0;
+    private static final double WATER_LEVEL_CHANGE_THRESHOLD_CM = 2.0;
+    private static final Map<String, Double> lastNotifiedSoilMap = new ConcurrentHashMap<>();
+    private static final Map<String, Double> lastNotifiedWaterMap = new ConcurrentHashMap<>();
+
     @Autowired
     public ThresholdEvaluationServiceImpl(
             AutoIrrigationConfigRepository autoConfigRepository,
@@ -122,6 +128,57 @@ public class ThresholdEvaluationServiceImpl implements ThresholdEvaluationServic
             return;
         }
 
+        // 2b. Significant-change notifications (only from healthy sensors, non-zero readings)
+        if (alertService != null && soilMoisture > 0 && waterLevelCm >= 0) {
+            String nodeKey = node.getNodeId();
+            String zoneName = node.getMonitoringZone() != null ? node.getMonitoringZone().getCode() : nodeKey;
+
+            Double prevSoil = lastNotifiedSoilMap.get(nodeKey);
+            if (prevSoil != null) {
+                double soilDiff = soilMoisture - prevSoil;
+                if (Math.abs(soilDiff) >= SOIL_CHANGE_THRESHOLD_PCT) {
+                    String dir = soilDiff > 0 ? "rose" : "dropped";
+                    String sev = Math.abs(soilDiff) >= 15 ? "WARNING" : "INFO";
+                    alertService.createNotification(
+                        "SOIL_MOISTURE_CHANGE",
+                        String.format("Soil Moisture %s by %.1f%%", dir, Math.abs(soilDiff)),
+                        String.format("Soil moisture on node %s (%s) %s from %.1f%% to %.1f%% (Δ%.1f%%).",
+                            nodeKey, zoneName, dir, prevSoil, soilMoisture, soilDiff),
+                        sev, "agronomic", nodeKey, fieldId,
+                        node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null,
+                        zoneName, "THRESHOLD_ENGINE", "ArvaCore Threshold Monitor",
+                        "ZONE", "Monitor soil moisture trends.",
+                        "SOIL_CHANGE:" + nodeKey, 60, null
+                    );
+                    lastNotifiedSoilMap.put(nodeKey, soilMoisture);
+                }
+            } else {
+                lastNotifiedSoilMap.put(nodeKey, soilMoisture);
+            }
+
+            Double prevWater = lastNotifiedWaterMap.get(nodeKey);
+            if (prevWater != null) {
+                double waterDiff = waterLevelCm - prevWater;
+                if (Math.abs(waterDiff) >= WATER_LEVEL_CHANGE_THRESHOLD_CM) {
+                    String dir = waterDiff > 0 ? "rose" : "dropped";
+                    String sev = waterLevelCm < 1.0 ? "CRITICAL" : (Math.abs(waterDiff) >= 5 ? "WARNING" : "INFO");
+                    alertService.createNotification(
+                        "WATER_LEVEL_CHANGE",
+                        String.format("Water Level %s by %.1f cm", dir, Math.abs(waterDiff)),
+                        String.format("Water level on node %s (%s) %s from %.1f cm to %.1f cm (Δ%.1f cm).",
+                            nodeKey, zoneName, dir, prevWater, waterLevelCm, waterDiff),
+                        sev, "agronomic", nodeKey, fieldId,
+                        node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null,
+                        zoneName, "THRESHOLD_ENGINE", "ArvaCore Threshold Monitor",
+                        "ZONE", "Monitor water level trends.",
+                        "WATER_CHANGE:" + nodeKey, 60, null
+                    );
+                    lastNotifiedWaterMap.put(nodeKey, waterLevelCm);
+                }
+            } else {
+                lastNotifiedWaterMap.put(nodeKey, waterLevelCm);
+            }
+        }
         // 3. Rule Evaluation:
         // Table:
         // Critical water deficiency -> CRITICAL -> START
