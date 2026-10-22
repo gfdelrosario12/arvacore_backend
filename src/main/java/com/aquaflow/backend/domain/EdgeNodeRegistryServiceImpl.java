@@ -230,11 +230,25 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
         return doAssignNodeToField(node, request);
     }
 
+    // Immutable node→zone mapping for permanently provisioned fixed nodes
+    private static final java.util.Map<String, Long> FIXED_NODE_ZONE_MAP = java.util.Map.of(
+            "ARVANODE-001", 1L,
+            "ARVANODE-002", 2L
+    );
+
     private EdgeNodeResponse doAssignNodeToField(EdgeNode node, AssignNodeFieldRequest request) {
         if (node.getLifecycleState() == NodeLifecycleState.DECOMMISSIONED ||
             node.getLifecycleState() == NodeLifecycleState.REPLACED ||
             node.getLifecycleState() == NodeLifecycleState.UNREGISTERED) {
             throw new ValidationException("Cannot assign node in inactive state: " + node.getLifecycleState());
+        }
+
+        // Fixed nodes have permanent zone assignments — reject any attempt to reassign them
+        Long fixedZoneId = FIXED_NODE_ZONE_MAP.get(node.getNodeId());
+        if (fixedZoneId != null) {
+            throw new ValidationException(
+                    "FIXED_NODE: " + node.getNodeId() + " has a permanent zone assignment (zone " + fixedZoneId +
+                    ") and cannot be reassigned. Modify migration V19 to change this mapping.");
         }
 
         Long previousZoneId = node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null;

@@ -177,7 +177,9 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
             throw new ValidationException("UNRESOLVED_NODE_IDENTITY: Node identification parameter missing");
         }
 
-        if (!nodePairingService.isMasterEnabled()) {
+        // Fixed provisioned nodes bypass the master-off gate; they transmit autonomously.
+        boolean isFixedNode = "ARVANODE-001".equals(targetIdentifier) || "ARVANODE-002".equals(targetIdentifier);
+        if (!isFixedNode && !nodePairingService.isMasterEnabled()) {
             recordStreamEvent(
                     targetIdentifier, "REJECTED", "MASTER_OFF: Master system is turned OFF. Telemetry ingestion is suspended.",
                     rawPayloadStr, seqNum, decoded.getTimestamp(), null, null, null,
@@ -200,6 +202,11 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
             );
             throw e;
         }
+
+        // Enforce fixed zone assignment: ARVANODE-001 -> Zone 1, ARVANODE-002 -> Zone 2
+        validateFixedNodeZoneBinding(node, targetIdentifier, rawPayloadStr, seqNum, decoded,
+                soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb,
+                soilHealth, ultrasonicHealth, telemetryStatus);
 
         Field currentField = (node.getMonitoringZone() != null) ? node.getMonitoringZone().getField() : null;
         Long fieldId = currentField != null ? currentField.getId() : null;
@@ -463,6 +470,46 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
             return "OK";
         }
         return null;
+    }
+
+    /**
+     * Fixed node → zone binding table.
+     * ARVANODE-001 must be assigned to monitoring_zone_id=1 (Zone 1 / Q1).
+     * ARVANODE-002 must be assigned to monitoring_zone_id=2 (Zone 2 / Q2).
+     * Rejects telemetry if the zone assignment is missing or incorrect.
+     */
+    private static final java.util.Map<String, Long> FIXED_NODE_ZONE = java.util.Map.of(
+            "ARVANODE-001", 1L,
+            "ARVANODE-002", 2L
+    );
+
+    private void validateFixedNodeZoneBinding(
+            EdgeNode node, String targetIdentifier, String rawPayloadStr, Long seqNum,
+            DecodedTelemetryPayload decoded,
+            Double soilMoisture, Double waterLevelCm, Double waterDistance,
+            Double batteryLevel, Double batteryVoltage, Integer rssiDbm, Double snrDb,
+            String soilHealth, String ultrasonicHealth, String telemetryStatus
+    ) {
+        Long expectedZoneId = FIXED_NODE_ZONE.get(node.getNodeId());
+        if (expectedZoneId == null) {
+            return; // Not a fixed node — no constraint
+        }
+        Long actualZoneId = node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null;
+        if (!expectedZoneId.equals(actualZoneId)) {
+            String msg = String.format(
+                    "FIXED_ZONE_MISMATCH: %s must be assigned to zone %d but is currently assigned to zone %s. " +
+                    "Run migration V19 to restore the permanent assignment.",
+                    node.getNodeId(), expectedZoneId, actualZoneId
+            );
+            log.error(msg);
+            recordStreamEvent(
+                    targetIdentifier, "REJECTED", msg,
+                    rawPayloadStr, seqNum, decoded.getTimestamp(), null, null, null,
+                    soilMoisture, waterLevelCm, waterDistance, batteryLevel, batteryVoltage, rssiDbm, snrDb,
+                    soilHealth, ultrasonicHealth, telemetryStatus, 0
+            );
+            throw new ValidationException(msg);
+        }
     }
 
     private EdgeNode resolveEdgeNode(String identifier) {

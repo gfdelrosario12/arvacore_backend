@@ -136,7 +136,7 @@ public class LatestTelemetrySnapshotIntegrationTest {
 
         NodeLatestTelemetrySnapshotResponse snapshot = edgeNodeRegistryService.getLatestTelemetrySnapshot(null);
 
-        assertThat(snapshot.getNodes()).hasSize(2);
+        assertThat(snapshot.getNodes().stream().filter(n -> n.getNodeId().startsWith("SNAP-")).count()).isEqualTo(2);
         assertThat(snapshot.getServerTime()).isNotNull();
 
         NodeLatestTelemetryResponse first = snapshot.getNodes().stream()
