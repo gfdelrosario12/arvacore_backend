@@ -15,10 +15,11 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.security.core.Authentication;
 
 import java.net.URI;
+import java.util.Arrays;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/nodes")
+@RequestMapping({"/api/v1/nodes", "/api/nodes"})
 public class EdgeNodeRegistryController {
 
     private final EdgeNodeRegistryService edgeNodeRegistryService;
@@ -37,6 +38,19 @@ public class EdgeNodeRegistryController {
         this.nodePairingService = nodePairingService;
     }
 
+    @GetMapping("/telemetry/latest")
+    public ResponseEntity<NodeLatestTelemetrySnapshotResponse> getLatestTelemetrySnapshot(
+            @RequestParam(required = false) String nodeIds) {
+        List<String> requested = null;
+        if (nodeIds != null && !nodeIds.isBlank()) {
+            requested = Arrays.stream(nodeIds.split(","))
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .toList();
+        }
+        return ResponseEntity.ok(edgeNodeRegistryService.getLatestTelemetrySnapshot(requested));
+    }
+
     @PostMapping
     public ResponseEntity<EdgeNodeResponse> registerNode(@Valid @RequestBody RegisterNodeRequest request) {
         EdgeNodeResponse response = edgeNodeRegistryService.registerNode(request);
@@ -51,7 +65,7 @@ public class EdgeNodeRegistryController {
         return ResponseEntity.ok(edgeNodeRegistryService.getNodes(lifecycleState, healthState, zoneId));
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/{id:[0-9]+}")
     public ResponseEntity<EdgeNodeResponse> getNodeById(@PathVariable Long id) {
         return ResponseEntity.ok(edgeNodeRegistryService.getNodeById(id));
     }
@@ -137,12 +151,12 @@ public class EdgeNodeRegistryController {
         return ResponseEntity.ok(edgeNodeRegistryService.getNodeHealth(id));
     }
 
-    @GetMapping("/{id}/telemetry/latest")
+    @GetMapping("/{id:[0-9]+}/telemetry/latest")
     public ResponseEntity<List<TelemetryReadingResponse>> getLatestTelemetry(@PathVariable Long id) {
         return ResponseEntity.ok(edgeNodeRegistryService.getLatestTelemetry(id));
     }
 
-    @GetMapping("/{id}/telemetry/history")
+    @GetMapping("/{id:[0-9]+}/telemetry/history")
     public ResponseEntity<Page<TelemetryReadingResponse>> getHistoricalTelemetry(
             @PathVariable Long id,
             Pageable pageable) {

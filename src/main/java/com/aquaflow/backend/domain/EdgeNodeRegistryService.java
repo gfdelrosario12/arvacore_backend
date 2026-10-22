@@ -7,6 +7,7 @@ import com.aquaflow.backend.entity.NodeLifecycleState;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface EdgeNodeRegistryService {
@@ -37,6 +38,16 @@ public interface EdgeNodeRegistryService {
     NodeHealthSummaryResponse getNodeHealthSummary();
 
     List<TelemetryReadingResponse> getLatestTelemetry(Long id);
+
+    /**
+     * Returns the latest telemetry snapshot of every node visible to the caller.
+     *
+     * @param requestedNodeIds optional node identifiers (canonical node id or numeric id) to
+     *                          restrict the snapshot to; {@code null} or empty returns every
+     *                          visible node
+     * @return the batched snapshot
+     */
+    NodeLatestTelemetrySnapshotResponse getLatestTelemetrySnapshot(Collection<String> requestedNodeIds);
 
     Page<TelemetryReadingResponse> getHistoricalTelemetry(Long id, Pageable pageable);
 

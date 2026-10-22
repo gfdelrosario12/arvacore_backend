@@ -120,15 +120,51 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
     public List<EdgeNodeResponse> getNodes(NodeLifecycleState lifecycleState, HealthState healthState, Long zoneId) {
         List<EdgeNode> nodes = edgeNodeRepository.findAll();
 
-        return nodes.stream()
+        List<EdgeNode> visibleNodes = nodes.stream()
                 .filter(n -> lifecycleState != null
                         ? n.getLifecycleState() == lifecycleState
                         : (n.getLifecycleState() != NodeLifecycleState.UNREGISTERED &&
                            n.getLifecycleState() != NodeLifecycleState.DECOMMISSIONED))
                 .filter(n -> healthState == null || n.getHealthState() == healthState)
                 .filter(n -> zoneId == null || (n.getMonitoringZone() != null && Objects.equals(n.getMonitoringZone().getId(), zoneId)))
-                .map(n -> DtoMapper.toEdgeNodeResponse(n, telemetryReadingRepository.findByEdgeNodeIdOrderByTimestampDesc(n.getId())))
+                .toList();
+
+        // Resolve the latest reading of every node with a single batched query instead of
+        // loading the complete telemetry history of every node one by one.
+        Map<Long, List<TelemetryReading>> latestByNode = groupLatestReadingsByNode(
+                visibleNodes.stream().map(EdgeNode::getId).toList());
+
+        return visibleNodes.stream()
+                .map(n -> DtoMapper.toEdgeNodeResponse(n, latestByNode.getOrDefault(n.getId(), List.of())))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Resolves the newest reading of every sensor type for the supplied nodes with a single
+     * database statement.
+     *
+     * @param edgeNodeIds identifiers of the nodes to resolve
+     * @return a map of node identifier to its newest readings
+     */
+    private Map<Long, List<TelemetryReading>> groupLatestReadingsByNode(List<Long> edgeNodeIds) {
+        if (edgeNodeIds == null || edgeNodeIds.isEmpty()) {
+            return Map.of();
+        }
+        List<TelemetryReading> readings = telemetryReadingRepository.findLatestReadingsByEdgeNodeIds(edgeNodeIds);
+        Map<Long, List<TelemetryReading>> grouped = new LinkedHashMap<>();
+        for (TelemetryReading reading : readings) {
+            if (reading.getEdgeNode() == null) continue;
+            Long nodeId = reading.getEdgeNode().getId();
+            List<TelemetryReading> bucket = grouped.computeIfAbsent(nodeId, k -> new ArrayList<>());
+            // Guard against duplicate rows sharing the exact same maximum timestamp.
+            boolean duplicate = bucket.stream().anyMatch(existing ->
+                    existing.getSensorType() == reading.getSensorType()
+                            && Objects.equals(existing.getTimestamp(), reading.getTimestamp()));
+            if (!duplicate) {
+                bucket.add(reading);
+            }
+        }
+        return grouped;
     }
 
     @Override
@@ -147,7 +183,8 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
     @Transactional(readOnly = true)
     public EdgeNodeResponse getNodeById(Long id) {
         EdgeNode node = findNodeOrThrow(id);
-        return DtoMapper.toEdgeNodeResponse(node, telemetryReadingRepository.findByEdgeNodeIdOrderByTimestampDesc(node.getId()));
+        Map<Long, List<TelemetryReading>> latestByNode = groupLatestReadingsByNode(List.of(id));
+        return DtoMapper.toEdgeNodeResponse(node, latestByNode.getOrDefault(id, List.of()));
     }
 
     @Override
@@ -562,10 +599,69 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
     @Transactional(readOnly = true)
     public List<TelemetryReadingResponse> getLatestTelemetry(Long id) {
         findNodeOrThrow(id);
-        List<TelemetryReading> readings = telemetryReadingRepository.findByEdgeNodeIdOrderByTimestampDesc(id);
-        return readings.stream()
+        // Only the newest reading of every sensor type is returned: the endpoint is named
+        // "latest" and the previous implementation streamed the complete telemetry history
+        // of the node to the client.
+        Map<Long, List<TelemetryReading>> latestByNode = groupLatestReadingsByNode(List.of(id));
+        return latestByNode.getOrDefault(id, List.of()).stream()
+                .sorted(Comparator.comparing(TelemetryReading::getTimestamp,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .reversed())
                 .map(DtoMapper::toTelemetryReadingResponse)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public NodeLatestTelemetrySnapshotResponse getLatestTelemetrySnapshot(Collection<String> requestedNodeIds) {
+        List<EdgeNode> nodes = edgeNodeRepository.findAll();
+
+        Map<String, EdgeNode> byNodeId = new LinkedHashMap<>();
+        Map<String, EdgeNode> byNumericId = new LinkedHashMap<>();
+        for (EdgeNode node : nodes) {
+            byNodeId.put(node.getNodeId(), node);
+            byNumericId.put(String.valueOf(node.getId()), node);
+        }
+
+        List<EdgeNode> scoped;
+        if (requestedNodeIds == null || requestedNodeIds.isEmpty()) {
+            scoped = nodes.stream()
+                    .filter(n -> n.getLifecycleState() != NodeLifecycleState.UNREGISTERED
+                            && n.getLifecycleState() != NodeLifecycleState.DECOMMISSIONED)
+                    .toList();
+        } else {
+            List<EdgeNode> resolved = new ArrayList<>();
+            for (String requested : requestedNodeIds) {
+                if (requested == null || requested.isBlank()) continue;
+                EdgeNode node = byNodeId.get(requested.trim());
+                if (node == null) {
+                    node = byNumericId.get(requested.trim());
+                }
+                if (node == null) {
+                    throw new ResourceNotFoundException("Edge node not found with identifier: " + requested);
+                }
+                // Only nodes the caller may observe are exposed; lifecycle state stays
+                // independent from the telemetry state.
+                if (node.getLifecycleState() == NodeLifecycleState.UNREGISTERED
+                        || node.getLifecycleState() == NodeLifecycleState.DECOMMISSIONED) {
+                    continue;
+                }
+                resolved.add(node);
+            }
+            scoped = resolved;
+        }
+
+        Map<Long, List<TelemetryReading>> latestByNode = groupLatestReadingsByNode(
+                scoped.stream().map(EdgeNode::getId).toList());
+
+        List<NodeLatestTelemetryResponse> snapshots = scoped.stream()
+                .map(n -> DtoMapper.toNodeLatestTelemetryResponse(n, latestByNode.getOrDefault(n.getId(), List.of())))
+                .collect(Collectors.toList());
+
+        return NodeLatestTelemetrySnapshotResponse.builder()
+                .serverTime(LocalDateTime.now())
+                .nodes(snapshots)
+                .build();
     }
 
     @Override

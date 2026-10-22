@@ -4,8 +4,97 @@ import com.aquaflow.backend.dto.response.*;
 import com.aquaflow.backend.entity.*;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+
 @Component
 public class DtoMapper {
+
+    /** Default calibrated still-well reference distance in cm (40 inches). */
+    public static final double DEFAULT_CALIBRATED_BOTTOM_CM = 101.6;
+
+    /** Maximum measurable water depth in cm (3 feet / 36 inches). */
+    public static final double MAX_MEASURABLE_WATER_LEVEL_CM = 91.44;
+
+    /**
+     * Window used to decide whether a node is currently reachable.
+     *
+     * <p>The comparison is intentionally performed against server-side timestamps
+     * ({@code telemetry_readings.created_at} / {@code edge_nodes.updated_at}) instead of the
+     * device clock, because device timestamps follow the local timezone of the field node
+     * while the backend runs in UTC. Comparing a device timestamp with
+     * {@code LocalDateTime.now()} made every healthy node look permanently offline.</p>
+     */
+    public static final long ONLINE_WINDOW_MINUTES = 2L;
+
+    /**
+     * Derives the water depth in cm from a raw ultrasonic sensor-to-surface distance.
+     *
+     * <p>A distance of {@code 0} means the node reported a sensor failure placeholder and
+     * therefore maps to a depth of {@code 0.0}. A failed or unknown ultrasonic sensor also
+     * maps to {@code 0.0} so the dashboard can surface the failure instead of a fabricated
+     * depth.</p>
+     *
+     * @param distanceCm         raw measured distance in cm
+     * @param ultrasonicHealth   reported ultrasonic sensor health, may be {@code null}
+     * @return water depth in cm, never {@code null}
+     */
+    public static double computeWaterLevelCm(double distanceCm, String ultrasonicHealth) {
+        boolean ultrasonicFailed = distanceCm <= 0.0
+                || (ultrasonicHealth != null
+                    && !"OK".equalsIgnoreCase(ultrasonicHealth)
+                    && !"UNKNOWN".equalsIgnoreCase(ultrasonicHealth));
+        if (ultrasonicFailed) {
+            return 0.0;
+        }
+        double calibratedBottom = DEFAULT_CALIBRATED_BOTTOM_CM;
+        if (distanceCm > calibratedBottom) {
+            calibratedBottom = distanceCm;
+        }
+        double depth = Math.max(0.0, calibratedBottom - distanceCm);
+        depth = Math.min(depth, MAX_MEASURABLE_WATER_LEVEL_CM);
+        return Math.round(depth * 100.0) / 100.0;
+    }
+
+    /**
+     * Resolves the newest server-side activity timestamp for a node.
+     *
+     * @param node     the edge node
+     * @param readings the node's latest readings, may be {@code null} or empty
+     * @return the arrival timestamp of the newest reading, otherwise the row update timestamp
+     */
+    public static LocalDateTime resolveLastActivity(EdgeNode node, java.util.List<TelemetryReading> readings) {
+        LocalDateTime lastActivity = null;
+        if (readings != null) {
+            for (TelemetryReading reading : readings) {
+                LocalDateTime receivedAt = reading.getCreatedAt();
+                if (receivedAt != null && (lastActivity == null || receivedAt.isAfter(lastActivity))) {
+                    lastActivity = receivedAt;
+                }
+            }
+        }
+        if (lastActivity == null && node != null) {
+            lastActivity = node.getUpdatedAt();
+        }
+        return lastActivity;
+    }
+
+    /**
+     * Decides whether a node is currently reachable using server-side timestamps only.
+     *
+     * @param node     the edge node
+     * @param readings the node's latest readings, may be {@code null} or empty
+     * @return {@code true} when the node reported activity within the online window
+     */
+    public static boolean isNodeReachable(EdgeNode node, java.util.List<TelemetryReading> readings) {
+        if (node == null) return false;
+        NodeLifecycleState lifecycle = node.getLifecycleState();
+        if (lifecycle != NodeLifecycleState.ACTIVE && lifecycle != NodeLifecycleState.COMMISSIONED) {
+            return false;
+        }
+        LocalDateTime lastActivity = resolveLastActivity(node, readings);
+        return lastActivity != null
+                && lastActivity.isAfter(LocalDateTime.now().minusMinutes(ONLINE_WINDOW_MINUTES));
+    }
 
     public static ZoneResponse toZoneResponse(Zone zone) {
         return ZoneResponse.builder()
@@ -326,9 +415,7 @@ public class DtoMapper {
         }
 
         java.time.LocalDateTime lastHb = node.getHealthMetrics() != null ? node.getHealthMetrics().getLastHeartbeat() : null;
-        boolean online = (lifecycle == NodeLifecycleState.ACTIVE || lifecycle == NodeLifecycleState.COMMISSIONED)
-                && lastHb != null
-                && lastHb.isAfter(java.time.LocalDateTime.now().minusMinutes(2));
+        boolean online = isNodeReachable(node, null);
         String connectivityStatus = online ? "ONLINE" : "OFFLINE";
 
         String soilHealth = (node.getHealthMetrics() != null && node.getHealthMetrics().getSoilSensorHealth() != null)
@@ -386,30 +473,96 @@ public class DtoMapper {
                 } else if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.WATER_LEVEL_DISTANCE && res.getWaterLevelCm() == null) {
                     double distance = r.getValueNum();
                     res.setWaterLevelDistanceCm(Math.round(distance * 100.0) / 100.0);
-                    String ultraHealth = res.getUltrasonicSensorHealth();
-                    boolean ultraFailed = distance <= 0.0
-                            || (ultraHealth != null && !"OK".equalsIgnoreCase(ultraHealth) && !"UNKNOWN".equalsIgnoreCase(ultraHealth));
-                    if (ultraFailed) {
-                        res.setWaterLevelCm(0.0);
-                    } else {
-                        // Ultrasonic water-level calculation:
-                        // Water Level = Calibrated Sensor-to-Bottom Distance - Measured Sensor-to-Ball Distance
-                        // Default calibrated reference is 40 inches (101.6 cm), or adapts to physical installation if greater
-                        double calibratedBottom = 101.6;
-                        if (distance > calibratedBottom) {
-                            calibratedBottom = distance;
-                        }
-                        double depth = Math.max(0.0, calibratedBottom - distance);
-                        // Max measurable water level is 3 feet (36 inches = 91.44 cm)
-                        depth = Math.min(depth, 91.44);
-                        res.setWaterLevelCm(Math.round(depth * 100.0) / 100.0);
-                    }
+                    res.setWaterLevelCm(computeWaterLevelCm(distance, res.getUltrasonicSensorHealth()));
                 } else if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.BATTERY_VOLTAGE && res.getBatteryVoltage() == null) {
                     res.setBatteryVoltage(r.getValueNum());
                 }
             }
         }
+        // Prefer the arrival timestamp of the newest reading for connectivity: the device
+        // clock of the field node does not share a timezone with the backend host.
+        boolean reachable = isNodeReachable(node, readings);
+        res.setIsOnline(reachable);
+        res.setConnectivityStatus(reachable ? "ONLINE" : "OFFLINE");
         return res;
+    }
+
+    /**
+     * Maps a node together with its latest readings into the lightweight dashboard snapshot.
+     *
+     * @param node     the edge node
+     * @param readings the newest reading per (node, sensor type) pair
+     * @return the snapshot, or {@code null} when the node is {@code null}
+     */
+    public static NodeLatestTelemetryResponse toNodeLatestTelemetryResponse(
+            EdgeNode node,
+            java.util.List<TelemetryReading> readings) {
+        if (node == null) return null;
+
+        Double soilMoisturePercent = null;
+        Double waterLevelDistanceCm = null;
+        Double batteryVoltage = null;
+        LocalDateTime lastTelemetryAt = null;
+        LocalDateTime lastReceivedAt = null;
+
+        if (readings != null) {
+            for (TelemetryReading r : readings) {
+                if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.SOIL_MOISTURE
+                        && soilMoisturePercent == null) {
+                    soilMoisturePercent = r.getValueNum();
+                } else if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.WATER_LEVEL_DISTANCE
+                        && waterLevelDistanceCm == null) {
+                    waterLevelDistanceCm = Math.round(r.getValueNum() * 100.0) / 100.0;
+                } else if (r.getSensorType() == com.aquaflow.backend.entity.SensorType.BATTERY_VOLTAGE
+                        && batteryVoltage == null) {
+                    batteryVoltage = r.getValueNum();
+                }
+                if (r.getTimestamp() != null && (lastTelemetryAt == null || r.getTimestamp().isAfter(lastTelemetryAt))) {
+                    lastTelemetryAt = r.getTimestamp();
+                }
+                if (r.getCreatedAt() != null && (lastReceivedAt == null || r.getCreatedAt().isAfter(lastReceivedAt))) {
+                    lastReceivedAt = r.getCreatedAt();
+                }
+            }
+        }
+
+        String ultrasonicHealth = (node.getHealthMetrics() != null && node.getHealthMetrics().getUltrasonicSensorHealth() != null)
+                ? node.getHealthMetrics().getUltrasonicSensorHealth() : "UNKNOWN";
+        String soilHealth = (node.getHealthMetrics() != null && node.getHealthMetrics().getSoilSensorHealth() != null)
+                ? node.getHealthMetrics().getSoilSensorHealth() : "UNKNOWN";
+        String telemetryStatus = (node.getHealthMetrics() != null && node.getHealthMetrics().getTelemetryStatus() != null)
+                ? node.getHealthMetrics().getTelemetryStatus() : "UNKNOWN";
+
+        Double waterLevelCm = null;
+        if (waterLevelDistanceCm != null) {
+            waterLevelCm = computeWaterLevelCm(waterLevelDistanceCm, ultrasonicHealth);
+        }
+
+        Double batteryLevel = (node.getHealthMetrics() != null) ? node.getHealthMetrics().getBatteryLevel() : null;
+
+        return NodeLatestTelemetryResponse.builder()
+                .edgeNodeId(node.getId())
+                .nodeId(node.getNodeId())
+                .monitoringZoneId(node.getMonitoringZone() != null ? node.getMonitoringZone().getId() : null)
+                .monitoringZoneCode(node.getMonitoringZone() != null
+                        ? (node.getMonitoringZone().getCode() != null && !node.getMonitoringZone().getCode().isBlank()
+                            ? node.getMonitoringZone().getCode()
+                            : "Q" + node.getMonitoringZone().getId())
+                        : null)
+                .monitoringZoneName(node.getMonitoringZone() != null ? node.getMonitoringZone().getName() : null)
+                .soilMoisturePercent(soilMoisturePercent)
+                .waterLevelDistanceCm(waterLevelDistanceCm)
+                .waterLevelCm(waterLevelCm)
+                .batteryVoltage(batteryVoltage)
+                .batteryPercent(batteryLevel != null ? (int) Math.round(batteryLevel) : null)
+                .soilSensorHealth(soilHealth)
+                .ultrasonicSensorHealth(ultrasonicHealth)
+                .telemetryStatus(telemetryStatus)
+                .lastTelemetryAt(lastTelemetryAt)
+                .lastReceivedAt(lastReceivedAt)
+                .isOnline(isNodeReachable(node, readings))
+                .hasTelemetry(readings != null && !readings.isEmpty())
+                .build();
     }
 
     public static MonitoringPointResponse toMonitoringPointResponse(MonitoringPoint point) {
