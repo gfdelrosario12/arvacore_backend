@@ -42,6 +42,9 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private ThresholdEvaluationService thresholdEvaluationService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.aquaflow.backend.infrastructure.realtime.RealtimeSseBroadcaster sseBroadcaster;
+
     // Frame Counter deduplication cache per node
     private final Map<String, Long> lastSeenFrameCounters = new ConcurrentHashMap<>();
 
@@ -282,6 +285,35 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
             systemEventPublisher.publishTelemetryReceived(node.getNodeId(), fieldId, count);
         } catch (Exception e) {
             // Asynchronous event publication error fallback
+        }
+
+        // Broadcast real-time SSE telemetry update to connected clients immediately
+        if (sseBroadcaster != null) {
+            try {
+                com.aquaflow.backend.dto.response.NodeLatestTelemetryResponse snapshot =
+                        com.aquaflow.backend.dto.response.NodeLatestTelemetryResponse.builder()
+                                .edgeNodeId(node.getId())
+                                .nodeId(node.getNodeId())
+                                .monitoringZoneId(zoneId)
+                                .monitoringZoneCode(zoneCode)
+                                .monitoringZoneName(node.getMonitoringZone() != null ? node.getMonitoringZone().getName() : null)
+                                .soilMoisturePercent(soilMoisture)
+                                .waterLevelDistanceCm(waterDistance)
+                                .waterLevelCm(waterLevelCm)
+                                .batteryVoltage(batteryVoltage)
+                                .batteryPercent(batteryLevel != null ? (int) Math.round(batteryLevel) : null)
+                                .soilSensorHealth(soilHealth)
+                                .ultrasonicSensorHealth(ultrasonicHealth)
+                                .telemetryStatus(telemetryStatus)
+                                .lastTelemetryAt(validatedTimestamp)
+                                .lastReceivedAt(LocalDateTime.now())
+                                .isOnline(true)
+                                .hasTelemetry(count > 0)
+                                .build();
+                sseBroadcaster.broadcastTelemetryUpdated(snapshot);
+            } catch (Exception e) {
+                log.warn("Failed to broadcast SSE telemetry for node {}: {}", node.getNodeId(), e.getMessage());
+            }
         }
 
         String status = (rejected > 0 && count > 0) ? "PARTIALLY_PROCESSED"

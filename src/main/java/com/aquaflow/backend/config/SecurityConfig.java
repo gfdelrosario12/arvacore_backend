@@ -80,6 +80,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
+                        .requestMatchers("/api/v1/realtime/sse", "/api/realtime/sse").permitAll()
                         .requestMatchers("/api/v1/auth/register").hasRole("ADMIN")
                         .requestMatchers("/api/v1/auth/**").authenticated()
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/pairing/requests", "/api/v1/pairing/request").permitAll()

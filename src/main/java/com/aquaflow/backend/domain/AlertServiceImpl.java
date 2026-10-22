@@ -6,8 +6,10 @@ import com.aquaflow.backend.infrastructure.exception.ResourceNotFoundException;
 import com.aquaflow.backend.infrastructure.util.DtoMapper;
 import com.aquaflow.backend.persistence.AlertRepository;
 import jakarta.persistence.criteria.Predicate;
+import com.aquaflow.backend.infrastructure.realtime.RealtimeSseBroadcaster;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -28,10 +30,17 @@ public class AlertServiceImpl implements AlertService {
     private static final Logger log = LoggerFactory.getLogger(AlertServiceImpl.class);
 
     private final AlertRepository alertRepository;
+    private final RealtimeSseBroadcaster sseBroadcaster;
     private final Map<String, LocalDateTime> dedupCooldownMap = new ConcurrentHashMap<>();
 
-    public AlertServiceImpl(AlertRepository alertRepository) {
+    @Autowired
+    public AlertServiceImpl(AlertRepository alertRepository, @Autowired(required = false) RealtimeSseBroadcaster sseBroadcaster) {
         this.alertRepository = alertRepository;
+        this.sseBroadcaster = sseBroadcaster;
+    }
+
+    public AlertServiceImpl(AlertRepository alertRepository) {
+        this(alertRepository, null);
     }
 
     @Override
@@ -138,7 +147,16 @@ public class AlertServiceImpl implements AlertService {
         Alert saved = alertRepository.save(alert);
         log.info("Notification recorded [id={}, type={}, level={}, node={}]",
                 saved != null ? saved.getId() : null, eventType, normalizedLevel, nodeId);
-        return DtoMapper.toAlertResponse(saved != null ? saved : alert);
+
+        AlertResponse resp = DtoMapper.toAlertResponse(saved != null ? saved : alert);
+        if (sseBroadcaster != null && resp != null) {
+            try {
+                sseBroadcaster.broadcastNotificationCreated(resp);
+            } catch (Exception e) {
+                log.warn("Failed to broadcast SSE notification for {}: {}", resp.getId(), e.getMessage());
+            }
+        }
+        return resp;
     }
 
     @Override
