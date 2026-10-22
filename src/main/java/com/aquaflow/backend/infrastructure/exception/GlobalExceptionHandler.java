@@ -102,6 +102,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<Void> handleHttpMediaTypeNotAcceptableException(org.springframework.web.HttpMediaTypeNotAcceptableException ex) {
+        log.warn("Media type not acceptable: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).build();
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
         log.error("Unhandled exception: ", ex);
