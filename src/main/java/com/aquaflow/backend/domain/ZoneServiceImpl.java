@@ -85,6 +85,33 @@ public class ZoneServiceImpl implements ZoneService {
 
         Zone saved = zoneRepository.save(zone);
         log.info("Zone created with id: {}", saved.getId());
+
+        // Also ensure a corresponding MonitoringZone exists for the primary field so it appears in field topologies and dashboards
+        MonitoringZone mz = null;
+        if (fieldRepository != null && monitoringZoneRepository != null) {
+            try {
+                com.aquaflow.backend.entity.Field field = fieldRepository.findAll().stream().findFirst().orElse(null);
+                if (field != null) {
+                    mz = MonitoringZone.builder()
+                            .name(saved.getName())
+                            .code("Q" + saved.getId())
+                            .field(field)
+                            .cropType(saved.getCropType())
+                            .areaSize(saved.getArea())
+                            .areaUnit("HECTARES")
+                            .areaType("CUSTOM")
+                            .waterAllocationLimitLiters(saved.getWaterAllocationLimit() != null ? saved.getWaterAllocationLimit() : 1000.0)
+                            .targetMoisturePercentage(70.0)
+                            .operationalStatus("READY")
+                            .isArchived(false)
+                            .build();
+                    monitoringZoneRepository.save(mz);
+                }
+            } catch (Exception e) {
+                log.warn("Could not create complementary monitoring zone for {}: {}", saved.getName(), e.getMessage());
+            }
+        }
+
         if (alertService != null) {
             try {
                 alertService.createNotification(
@@ -107,7 +134,7 @@ public class ZoneServiceImpl implements ZoneService {
                 );
             } catch (Exception ignored) {}
         }
-        return DtoMapper.toZoneResponse(saved);
+        return mz != null ? toAwdZoneResponse(mz) : DtoMapper.toZoneResponse(saved);
     }
 
     @Override
@@ -281,11 +308,20 @@ public class ZoneServiceImpl implements ZoneService {
 
     @Override
     public void deleteZone(Long id) {
-        if (!zoneRepository.existsById(id)) {
+        boolean deletedAny = false;
+        if (monitoringZoneRepository != null && monitoringZoneRepository.existsById(id)) {
+            archiveMonitoringZone(id);
+            deletedAny = true;
+            log.info("MonitoringZone archived with id: {}", id);
+        }
+        if (zoneRepository.existsById(id)) {
+            zoneRepository.deleteById(id);
+            deletedAny = true;
+            log.info("Zone deleted with id: {}", id);
+        }
+        if (!deletedAny) {
             throw new ResourceNotFoundException("Zone not found with id: " + id);
         }
-        zoneRepository.deleteById(id);
-        log.info("Zone deleted with id: {}", id);
     }
 
     @Override

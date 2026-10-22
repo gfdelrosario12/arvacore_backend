@@ -264,6 +264,19 @@ public class EdgeNodeRegistryServiceImpl implements EdgeNodeRegistryService {
                 }
             }
 
+            // Enforce strict 1 Zone = 1 Node maximum constraint
+            List<EdgeNode> existingAssigned = edgeNodeRepository.findByMonitoringZoneId(zone.getId());
+            for (EdgeNode existing : existingAssigned) {
+                if (!existing.getId().equals(node.getId()) &&
+                    existing.getLifecycleState() != NodeLifecycleState.UNREGISTERED &&
+                    existing.getLifecycleState() != NodeLifecycleState.DECOMMISSIONED &&
+                    existing.getLifecycleState() != NodeLifecycleState.REPLACED) {
+                    throw new ValidationException(String.format(
+                            "Zone '%s' (ID: %d) already has node '%s' assigned. Enforcing 1 Zone = 1 Node constraint.",
+                            zone.getName(), zone.getId(), existing.getNodeId()), "ZONE_ALREADY_ASSIGNED");
+                }
+            }
+
             node.setMonitoringZone(zone);
             EdgeNode saved = edgeNodeRepository.save(node);
 
