@@ -306,6 +306,7 @@ All REST endpoints are prefixed with `/api/v1/`.
 | HTTP Method | Endpoint Path | Description | Access Role |
 | :--- | :--- | :--- | :---:|
 | `GET` | `/api/v1/nodes` | List registered ESP32 edge nodes with optional status filter | `ROLE_VIEWER`+ |
+| `GET` | `/api/v1/nodes/telemetry/latest` | Batched latest-telemetry snapshot per node (optional `?nodeIds=` filter) | `ROLE_VIEWER`+ |
 | `GET` | `/api/v1/nodes/{id}` | Fetch single edge node metadata and configuration | `ROLE_VIEWER`+ |
 | `POST` | `/api/v1/nodes` | Register a new ESP32 edge node device | `ROLE_OPERATOR`+ |
 | `PUT` | `/api/v1/nodes/{id}` | Update node configuration or zone association | `ROLE_OPERATOR`+ |
@@ -481,6 +482,11 @@ ArvaCore enforces strict account isolation, case-insensitive identifier resoluti
 | **V9** | `V9__telemetry_stream_events.sql` | Dedicated table and indexes for live ESP32 telemetry transmission notification events |
 | **V10** | `V10__reconcile_accounts_and_enforce_isolation.sql` | Reconcile baseline accounts, add email unique constraint, and enforce strict account isolation |
 | **V11** | `V11__create_missing_operational_and_aggregate_tables.sql` | Missing operational and aggregate tables (`zone_telemetry_aggregates`, `awd_threshold_configs`, `config_sync_tasks`, `downlink_queue_items`, `irrigation_command_records`, `command_state_transition_histories`) and health metric columns on `edge_nodes` |
+| **V12** | `V12__dynamic_farmland_and_node_assignment_history.sql` | Dynamic farmland configuration and node assignment history |
+| **V13** | `V13__device_authentication_and_pairing_bridge.sql` | Device authentication keys and pairing bridge tables |
+| **V14** | `V14__sensor_health_and_zone_sync.sql` | Sensor health columns and zone synchronisation support |
+| **V15** | `V15__centralized_notifications_and_indexes.sql` | Centralized `alerts` notification table plus supporting indexes |
+| **V16** | `V16__telemetry_latest_per_node_index.sql` | Composite index `(edge_node_id, sensor_type, timestamp DESC)` for the batched latest-telemetry-per-node lookup |
 
 
 ---
