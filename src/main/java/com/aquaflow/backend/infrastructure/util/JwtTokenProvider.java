@@ -47,9 +47,20 @@ public class JwtTokenProvider {
                 .getPayload();
     }
 
+    private static final String DEFAULT_FALLBACK_SECRET =
+            "oW09Kw4WjjK4JQdwA7MLDgQAQkZT1lBIdGzFEO+Vu7JcxbdcYgZoqz2iWw/KiMHUE0BMl7UmG3Oz+xK3RHUbMw==";
+
     private SecretKey getSignKey() {
         String sanitized = secret != null ? secret.replaceAll("\\s+", "") : "";
-        byte[] keyBytes = Decoders.BASE64.decode(sanitized);
+        byte[] keyBytes;
+        try {
+            keyBytes = (sanitized.isEmpty()) ? new byte[0] : Decoders.BASE64.decode(sanitized);
+        } catch (Exception e) {
+            keyBytes = new byte[0];
+        }
+        if (keyBytes.length < 32) {
+            keyBytes = Decoders.BASE64.decode(DEFAULT_FALLBACK_SECRET);
+        }
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
