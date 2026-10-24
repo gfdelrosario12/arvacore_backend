@@ -50,7 +50,10 @@ public class GatewayAuthenticationFilter extends OncePerRequestFilter {
                 && !uri.startsWith("/api/v1/pairing/request")
                 && !uri.startsWith("/api/v1/pairing/status")
                 && !uri.startsWith("/api/v1/irrigation/pending-command/")
-                && !uri.startsWith("/api/v1/irrigation/ack/");
+                && !uri.startsWith("/api/v1/irrigation/ack/")
+                && !uri.startsWith("/api/v1/gates/pending-command/")
+                && !uri.startsWith("/api/v1/gates/ack/")
+                && !uri.startsWith("/api/v1/gates/telemetry/");
     }
 
     @Override

@@ -17,28 +17,28 @@ UPDATE monitoring_zones SET name = 'Zone 5 (Pitak 5 - Distal Flank)', code = 'Q5
 UPDATE monitoring_zones SET name = 'Zone 6 (Pitak 6 - Tail Drain)', code = 'Q6', updated_at = CURRENT_TIMESTAMP WHERE id = 6;
 
 -- 2. Ensure EdgeNode entities exist for ARVANODE-001 through ARVANODE-006
-INSERT INTO edge_nodes (node_id, name, lifecycle_state, health_state, monitoring_zone_id, created_at, updated_at)
-SELECT 'ARVANODE-001', 'ArvaNode Field 01', 'COMMISSIONED', 'HEALTHY', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+INSERT INTO edge_nodes (node_id, identity_type, identity_value, lifecycle_state, health_state, monitoring_zone_id, created_at, updated_at)
+SELECT 'ARVANODE-001', 'DEVICE_ID', 'ARVANODE-001', 'COMMISSIONED', 'HEALTHY', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 WHERE NOT EXISTS (SELECT 1 FROM edge_nodes WHERE node_id = 'ARVANODE-001');
 
-INSERT INTO edge_nodes (node_id, name, lifecycle_state, health_state, monitoring_zone_id, created_at, updated_at)
-SELECT 'ARVANODE-002', 'ArvaNode Field 02', 'COMMISSIONED', 'HEALTHY', 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+INSERT INTO edge_nodes (node_id, identity_type, identity_value, lifecycle_state, health_state, monitoring_zone_id, created_at, updated_at)
+SELECT 'ARVANODE-002', 'DEVICE_ID', 'ARVANODE-002', 'COMMISSIONED', 'HEALTHY', 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 WHERE NOT EXISTS (SELECT 1 FROM edge_nodes WHERE node_id = 'ARVANODE-002');
 
-INSERT INTO edge_nodes (node_id, name, lifecycle_state, health_state, monitoring_zone_id, created_at, updated_at)
-SELECT 'ARVANODE-003', 'ArvaNode Field 03', 'COMMISSIONED', 'HEALTHY', 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+INSERT INTO edge_nodes (node_id, identity_type, identity_value, lifecycle_state, health_state, monitoring_zone_id, created_at, updated_at)
+SELECT 'ARVANODE-003', 'DEVICE_ID', 'ARVANODE-003', 'COMMISSIONED', 'HEALTHY', 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 WHERE NOT EXISTS (SELECT 1 FROM edge_nodes WHERE node_id = 'ARVANODE-003');
 
-INSERT INTO edge_nodes (node_id, name, lifecycle_state, health_state, monitoring_zone_id, created_at, updated_at)
-SELECT 'ARVANODE-004', 'ArvaNode Field 04', 'COMMISSIONED', 'HEALTHY', 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+INSERT INTO edge_nodes (node_id, identity_type, identity_value, lifecycle_state, health_state, monitoring_zone_id, created_at, updated_at)
+SELECT 'ARVANODE-004', 'DEVICE_ID', 'ARVANODE-004', 'COMMISSIONED', 'HEALTHY', 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 WHERE NOT EXISTS (SELECT 1 FROM edge_nodes WHERE node_id = 'ARVANODE-004');
 
-INSERT INTO edge_nodes (node_id, name, lifecycle_state, health_state, monitoring_zone_id, created_at, updated_at)
-SELECT 'ARVANODE-005', 'ArvaNode Field 05', 'COMMISSIONED', 'HEALTHY', 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+INSERT INTO edge_nodes (node_id, identity_type, identity_value, lifecycle_state, health_state, monitoring_zone_id, created_at, updated_at)
+SELECT 'ARVANODE-005', 'DEVICE_ID', 'ARVANODE-005', 'COMMISSIONED', 'HEALTHY', 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 WHERE NOT EXISTS (SELECT 1 FROM edge_nodes WHERE node_id = 'ARVANODE-005');
 
-INSERT INTO edge_nodes (node_id, name, lifecycle_state, health_state, monitoring_zone_id, created_at, updated_at)
-SELECT 'ARVANODE-006', 'ArvaNode Field 06', 'COMMISSIONED', 'HEALTHY', 6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+INSERT INTO edge_nodes (node_id, identity_type, identity_value, lifecycle_state, health_state, monitoring_zone_id, created_at, updated_at)
+SELECT 'ARVANODE-006', 'DEVICE_ID', 'ARVANODE-006', 'COMMISSIONED', 'HEALTHY', 6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 WHERE NOT EXISTS (SELECT 1 FROM edge_nodes WHERE node_id = 'ARVANODE-006');
 
 -- 3. Assign 1:1 Zone bindings for all 6 nodes
