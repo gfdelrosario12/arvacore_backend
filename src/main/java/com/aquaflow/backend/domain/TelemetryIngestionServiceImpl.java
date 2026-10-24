@@ -178,7 +178,11 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         }
 
         // Fixed provisioned nodes bypass the master-off gate; they transmit autonomously.
-        boolean isFixedNode = "ARVANODE-001".equals(targetIdentifier) || "ARVANODE-002".equals(targetIdentifier);
+        boolean isFixedNode = targetIdentifier != null && (
+                targetIdentifier.equals("ARVANODE-001") || targetIdentifier.equals("ARVANODE-002") ||
+                targetIdentifier.equals("ARVANODE-003") || targetIdentifier.equals("ARVANODE-004") ||
+                targetIdentifier.equals("ARVANODE-005") || targetIdentifier.equals("ARVANODE-006")
+        );
         if (!isFixedNode && !nodePairingService.isMasterEnabled()) {
             recordStreamEvent(
                     targetIdentifier, "REJECTED", "MASTER_OFF: Master system is turned OFF. Telemetry ingestion is suspended.",
@@ -480,7 +484,11 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
      */
     private static final java.util.Map<String, Long> FIXED_NODE_ZONE = java.util.Map.of(
             "ARVANODE-001", 1L,
-            "ARVANODE-002", 2L
+            "ARVANODE-002", 2L,
+            "ARVANODE-003", 3L,
+            "ARVANODE-004", 4L,
+            "ARVANODE-005", 5L,
+            "ARVANODE-006", 6L
     );
 
     private void validateFixedNodeZoneBinding(
@@ -498,7 +506,7 @@ public class TelemetryIngestionServiceImpl implements TelemetryIngestionService 
         if (!expectedZoneId.equals(actualZoneId)) {
             String msg = String.format(
                     "FIXED_ZONE_MISMATCH: %s must be assigned to zone %d but is currently assigned to zone %s. " +
-                    "Run migration V19 to restore the permanent assignment.",
+                    "Run migration V21 to restore the permanent assignment.",
                     node.getNodeId(), expectedZoneId, actualZoneId
             );
             log.error(msg);

@@ -51,7 +51,11 @@ public class JwtUtil {
     }
 
     public Boolean isTokenExpired(String token) {
-        return extractExpiration(token).before(new Date());
+        Date expiration = extractExpiration(token);
+        if (expiration == null) {
+            return false;
+        }
+        return expiration.before(new Date());
     }
 
     public String generateToken(String username) {
@@ -60,13 +64,17 @@ public class JwtUtil {
 
     public String generateToken(String username, Map<String, Object> extraClaims) {
         Map<String, Object> claims = extraClaims != null ? new HashMap<>(extraClaims) : new HashMap<>();
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .claims()
                 .add(claims)
                 .subject(username)
-                .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + expirationMs))
-                .and()
+                .issuedAt(new Date());
+
+        if (expirationMs > 0) {
+            builder.expiration(new Date(System.currentTimeMillis() + expirationMs));
+        }
+
+        return builder.and()
                 .signWith(getSignKey())
                 .compact();
     }

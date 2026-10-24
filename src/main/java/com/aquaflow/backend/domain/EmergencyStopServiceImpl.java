@@ -34,6 +34,7 @@ public class EmergencyStopServiceImpl implements EmergencyStopService {
     private final SystemEventPublisher systemEventPublisher;
     private final ObjectMapper objectMapper;
     private final IrrigationCommandStateMachine stateMachine;
+    private final java.util.concurrent.atomic.AtomicBoolean emergencyStopActive = new java.util.concurrent.atomic.AtomicBoolean(false);
 
     public EmergencyStopServiceImpl(FieldRepository fieldRepository,
                                     EdgeNodeRepository edgeNodeRepository,
@@ -65,7 +66,18 @@ public class EmergencyStopServiceImpl implements EmergencyStopService {
     }
 
     @Override
+    public boolean isEmergencyStopActive() {
+        return emergencyStopActive.get();
+    }
+
+    @Override
+    public void setEmergencyStopActive(boolean active) {
+        emergencyStopActive.set(active);
+    }
+
+    @Override
     public CommandStatusResponse executeEmergencyStop(EmergencyStopRequest request) {
+        emergencyStopActive.set(true);
         log.warn("EXECUTE EMERGENCY STOP requested by operator: {} for fieldId: {}, reason: {}",
                 request.getOperatorId(), request.getFieldId(), request.getReason());
 

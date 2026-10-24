@@ -1,0 +1,18 @@
+# =============================================================================
+# Mosquitto Access Control Lists (ACLs) - ArvaCore Ecosystem
+# =============================================================================
+
+# --- Anonymous / Development Mode Fallback ---
+# Telemetry uplinks from nodes and gateway
+topic readwrite arvacore/telemetry/#
+topic readwrite node/+/telemetry
+
+# Gateway status and heartbeat
+topic readwrite arvacore/gateway/#
+
+# Actuation commands and state machine downlinks
+topic readwrite arvacore/commands/#
+topic readwrite arvacore/actuation/#
+
+# Realtime broadcast topics
+topic readwrite arvacore/broadcast/#

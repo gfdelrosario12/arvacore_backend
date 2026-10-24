@@ -669,7 +669,33 @@ CREATE TABLE node_assignment_histories (
 
 ---
 
-## 20. Known Limitations & TODOs
+## 20. Farming AI Chatbot & Planting Plan System
+
+ArvaLink integrates an intelligent Farming AI Chatbot designed to guide farmers from crop selection to farm-readiness assessment, preparation, and progress tracking.
+
+### Workflow & Invariants
+1. **Initial Trigger**: Every new conversation begins with `"What do you want to plant today?"`.
+2. **Crop & Agronomic Profiles**: Grounded in DA-PhilRice & IRRI technical AWD specifications for Lowland Rice (NSIC Rc 222), Hybrid Yellow Corn, Eggplant, and Vegetables.
+3. **Four-Category Task Separation**:
+   - `SYSTEM_AUTOMATED`: Pre-soak irrigation, ultrasonic baseline calibration (requires explicit confirmation).
+   - `FARMER_MANUAL`: Land plowing, harrowing, leveling, bund mud sealing.
+   - `EQUIPMENT_INFO`: Rotavator availability, seed germination check.
+   - `SAFETY_BLOCKED`: Emergency stop latch active, pump dry-run risk.
+4. **Explicit Confirmation**: Preparation requires explicit authorization via `"Do you want to proceed with the proposed planting preparation?"`.
+5. **Safety Invariant**: AI has zero direct physical actuation rights. All automated tasks dispatch through ArvaCore safety interlocks and respect the master Emergency Stop.
+
+### REST Endpoints
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/v1/farming-chat/message` | Send message and receive conversational reply + task checklist. |
+| `GET` | `/api/v1/farming-chat/sessions/{sessionId}` | Retrieve conversation state and current active planting plan. |
+| `POST` | `/api/v1/farming-chat/sessions/{sessionId}/reset` | Reset session to start over from crop selection. |
+| `POST` | `/api/v1/farming-chat/plans/{planId}/confirm` | Farmer confirms preparation (validates safety interlocks). |
+| `POST` | `/api/v1/farming-chat/plans/{planId}/tasks/{taskId}/toggle` | Update status of farmer manual or equipment tasks. |
+
+---
+
+## 21. Known Limitations & TODOs
 
 - **Transport Protocols**: Currently supports LoRaWAN / ChirpStack; Cellular/NB-IoT transport adapters are under development.
 - **Offline Downlink Sync**: Direct peer-to-peer ESP-NOW mesh downlinks are under evaluation for gateway out-of-reach nodes.
